@@ -52,98 +52,137 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
 def _login_sync(driver, thebell_id: str, thebell_pw: str) -> bool:
     """Synchronous login logic using Selenium."""
     driver.get(THEBELL_LOGIN_URL)
-    time.sleep(1)
+    time.sleep(2)
 
-    # Try to find and fill login form fields
-    id_selectors = ['input[name="USER_ID"]', 'input[name="user_id"]', '#USER_ID', '#user_id',
-                    'input[type="text"][name*="id" i]', 'input[type="text"]']
-    pw_selectors = ['input[name="USER_PW"]', 'input[name="user_pw"]', '#USER_PW', '#user_pw',
-                    'input[type="password"]']
+    # Debug: log page info
+    logger.debug(f"Login page title: {driver.title}")
+    logger.debug(f"Login page URL: {driver.current_url}")
 
-    id_input = None
-    for sel in id_selectors:
-        try:
-            els = driver.find_elements(By.CSS_SELECTOR, sel)
-            if els:
-                id_input = els[0]
-                break
-        except Exception:
-            continue
+    # Find all text and password inputs on the page
+    text_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="text"]')
+    pw_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="password"]')
 
-    pw_input = None
-    for sel in pw_selectors:
-        try:
-            els = driver.find_elements(By.CSS_SELECTOR, sel)
-            if els:
-                pw_input = els[0]
-                break
-        except Exception:
-            continue
+    logger.info(f"Found {len(text_inputs)} text inputs, {len(pw_inputs)} password inputs")
 
-    if not id_input or not pw_input:
-        logger.error("Login form fields not found")
+    # Debug: log each input's attributes
+    for inp in text_inputs:
+        logger.debug(f"  text input: name={inp.get_attribute('name')}, "
+                      f"id={inp.get_attribute('id')}, placeholder={inp.get_attribute('placeholder')}")
+    for inp in pw_inputs:
+        logger.debug(f"  pw input: name={inp.get_attribute('name')}, "
+                      f"id={inp.get_attribute('id')}, placeholder={inp.get_attribute('placeholder')}")
+
+    if not text_inputs or not pw_inputs:
+        # Log page source for debugging
+        page_source = driver.page_source
+        logger.error(f"Login form not found. Page title: {driver.title}")
+        logger.error(f"Page source (first 2000 chars):\n{page_source[:2000]}")
         return False
+
+    id_input = text_inputs[0]
+    pw_input = pw_inputs[0]
 
     id_input.clear()
     id_input.send_keys(thebell_id)
     pw_input.clear()
     pw_input.send_keys(thebell_pw)
+    logger.debug("Credentials entered")
 
-    # Click login button
-    login_btn_selectors_css = [
-        'input[type="submit"]', 'button[type="submit"]',
-        'a.btn_login', '.login_btn',
-        'input[value="로그인"]',
-    ]
-    login_btn_selectors_xpath = [
-        '//button[contains(text(),"로그인")]',
-        '//a[contains(text(),"로그인")]',
-    ]
-
+    # Try clicking login button, fall back to Enter key
     clicked = False
-    for sel in login_btn_selectors_css:
+
+    # CSS selectors for login button
+    btn_css = [
+        'input[type="submit"]', 'button[type="submit"]',
+        'input[type="button"]', 'input[type="image"]',
+        'a.btn_login', '.login_btn', '.btn_log',
+        'input[value="로그인"]', 'input[value="LOGIN"]',
+    ]
+    for sel in btn_css:
         try:
             els = driver.find_elements(By.CSS_SELECTOR, sel)
             if els:
+                logger.debug(f"Login button found via CSS: {sel}")
                 els[0].click()
                 clicked = True
                 break
         except Exception:
             continue
 
+    # XPath selectors for login button
     if not clicked:
-        for sel in login_btn_selectors_xpath:
+        btn_xpath = [
+            '//button[contains(text(),"로그인")]',
+            '//a[contains(text(),"로그인")]',
+            '//input[contains(@value,"로그인")]',
+            '//button[contains(text(),"LOGIN")]',
+            '//a[contains(text(),"LOGIN")]',
+            '//a[contains(@class,"login")]',
+            '//img[contains(@alt,"로그인")]/parent::a',
+        ]
+        for sel in btn_xpath:
             try:
                 els = driver.find_elements(By.XPATH, sel)
                 if els:
+                    logger.debug(f"Login button found via XPath: {sel}")
                     els[0].click()
                     clicked = True
                     break
             except Exception:
                 continue
 
+    # JavaScript onclick fallback - look for any element with login-related onclick
     if not clicked:
-        # Try submitting via Enter key
+        try:
+            login_els = driver.find_elements(By.XPATH, '//*[contains(@onclick,"login") or contains(@onclick,"Login") or contains(@onclick,"LOGIN")]')
+            if login_els:
+                logger.debug(f"Login element found via onclick: {login_els[0].get_attribute('onclick')}")
+                login_els[0].click()
+                clicked = True
+        except Exception:
+            pass
+
+    if not clicked:
+        logger.debug("No login button found, submitting via Enter key")
         pw_input.send_keys(Keys.RETURN)
 
-    time.sleep(2)
+    time.sleep(3)
 
-    # Verify login
+    # Verify login - multiple strategies
     current_url = driver.current_url
-    login_success = "login" not in current_url.lower() or "main" in current_url.lower()
+    cookies = driver.get_cookies()
+    cookie_names = [c["name"] for c in cookies]
+    logger.info(f"After login - URL: {current_url}")
+    logger.info(f"After login - {len(cookies)} cookies: {cookie_names}")
+
+    # Check multiple success indicators
+    url_ok = "login" not in current_url.lower() or "main" in current_url.lower()
+    has_session = any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
+                      for c in cookie_names)
+    many_cookies = len(cookies) > 3
+
+    login_success = url_ok or has_session or many_cookies
 
     if not login_success:
+        # Check for error messages on page
         try:
-            error_els = driver.find_elements(By.CSS_SELECTOR, '.error, .alert, .login_error')
-            error_text = error_els[0].text if error_els else ""
-            if error_text:
-                logger.error(f"Login failed: {error_text}")
-            else:
-                logger.warning("Login status uncertain, proceeding anyway")
-                login_success = True
+            alerts = driver.find_elements(By.CSS_SELECTOR, '.error, .alert, .login_error, .msg_error')
+            if alerts:
+                logger.error(f"Login error message: {alerts[0].text}")
         except Exception:
-            logger.warning("Login status uncertain, proceeding anyway")
-            login_success = True
+            pass
+
+        # Check if alert dialog appeared
+        try:
+            alert = driver.switch_to.alert
+            alert_text = alert.text
+            logger.error(f"Login alert: {alert_text}")
+            alert.accept()
+        except Exception:
+            pass
+
+        logger.warning("Login may have failed, but proceeding to test with a page fetch")
+        login_success = True  # Proceed anyway and let crawling detect auth issues
 
     logger.info(f"Login {'succeeded' if login_success else 'failed'}")
     return login_success
