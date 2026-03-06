@@ -19,7 +19,7 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 THEBELL_BASE = "https://www.thebell.co.kr"
-THEBELL_LOGIN_URL = f"{THEBELL_BASE}/free/login/loginForm.asp"
+THEBELL_LOGIN_URL = f"{THEBELL_BASE}/LoginCert/Login.asp"
 
 # Category mapping: (menu, svccode, submenucode) for each target section
 # These correspond to TheBell's URL parameters
