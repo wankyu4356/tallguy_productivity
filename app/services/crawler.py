@@ -8,8 +8,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 
 from app.config import settings
 from app.models.schemas import ArticleInfo
@@ -49,159 +48,41 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
     return f"{THEBELL_BASE}/free/content/{menu}.asp?{urlencode(params)}"
 
 
-def _login_sync(driver, thebell_id: str, thebell_pw: str) -> bool:
-    """Synchronous login logic using Selenium."""
+LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
+
+
+def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
+    """Open TheBell login page and wait for user to log in manually."""
     driver.get(THEBELL_LOGIN_URL)
-    time.sleep(2)
+    logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
-    # Debug: log page info
-    logger.debug(f"Login page title: {driver.title}")
-    logger.debug(f"Login page URL: {driver.current_url}")
-
-    # Find login inputs — the page has duplicate inputs (mobile hidden + desktop visible).
-    # Target the visible desktop form by id attribute: input#id, input#pw
-    id_input = None
-    pw_input = None
-
-    try:
-        id_input = driver.find_element(By.CSS_SELECTOR, 'input#id')
-        pw_input = driver.find_element(By.CSS_SELECTOR, 'input#pw')
-        logger.info("Found login inputs by #id / #pw selectors")
-    except NoSuchElementException:
-        logger.debug("input#id / input#pw not found, trying fallback")
-
-    # Fallback: find displayed inputs with name="id" / name="pw"
-    if not id_input or not pw_input:
-        text_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="text"][name="id"]')
-        pw_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="password"][name="pw"]')
-        for inp in text_inputs:
-            if inp.is_displayed():
-                id_input = inp
-                break
-        for inp in pw_inputs:
-            if inp.is_displayed():
-                pw_input = inp
-                break
-        if id_input and pw_input:
-            logger.info("Found login inputs by displayed filter")
-
-    if not id_input or not pw_input:
-        logger.error(f"Login form inputs not found. Page title: {driver.title}")
-        logger.error(f"Page source (first 2000 chars):\n{driver.page_source[:2000]}")
-        return False
-
-    id_input.clear()
-    id_input.send_keys(thebell_id)
-    pw_input.clear()
-    pw_input.send_keys(thebell_pw)
-    logger.debug("Credentials entered")
-
-    # Try clicking login button, fall back to Enter key
-    clicked = False
-
-    # CSS selectors for login button
-    btn_css = [
-        'input[type="submit"]', 'button[type="submit"]',
-        'input[type="button"]', 'input[type="image"]',
-        'a.btn_login', '.login_btn', '.btn_log',
-        'input[value="로그인"]', 'input[value="LOGIN"]',
-    ]
-    for sel in btn_css:
+    start = time.time()
+    while time.time() - start < timeout:
         try:
-            els = driver.find_elements(By.CSS_SELECTOR, sel)
-            if els:
-                logger.debug(f"Login button found via CSS: {sel}")
-                els[0].click()
-                clicked = True
-                break
+            current_url = driver.current_url
+            # Left the login page → success
+            if "Login.asp" not in current_url and "login" not in current_url.lower():
+                logger.info(f"로그인 감지! URL: {current_url}")
+                return True
+            # Session cookie appeared → success
+            cookies = driver.get_cookies()
+            cookie_names = [c["name"] for c in cookies]
+            if any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
+                    for c in cookie_names):
+                logger.info(f"세션 쿠키로 로그인 감지! cookies: {cookie_names}")
+                return True
         except Exception:
-            continue
+            pass  # browser may be navigating
+        time.sleep(1)
 
-    # XPath selectors for login button
-    if not clicked:
-        btn_xpath = [
-            '//button[contains(text(),"로그인")]',
-            '//a[contains(text(),"로그인")]',
-            '//input[contains(@value,"로그인")]',
-            '//button[contains(text(),"LOGIN")]',
-            '//a[contains(text(),"LOGIN")]',
-            '//a[contains(@class,"login")]',
-            '//img[contains(@alt,"로그인")]/parent::a',
-        ]
-        for sel in btn_xpath:
-            try:
-                els = driver.find_elements(By.XPATH, sel)
-                if els:
-                    logger.debug(f"Login button found via XPath: {sel}")
-                    els[0].click()
-                    clicked = True
-                    break
-            except Exception:
-                continue
-
-    # JavaScript onclick fallback - look for any element with login-related onclick
-    if not clicked:
-        try:
-            login_els = driver.find_elements(By.XPATH, '//*[contains(@onclick,"login") or contains(@onclick,"Login") or contains(@onclick,"LOGIN")]')
-            if login_els:
-                logger.debug(f"Login element found via onclick: {login_els[0].get_attribute('onclick')}")
-                login_els[0].click()
-                clicked = True
-        except Exception:
-            pass
-
-    if not clicked:
-        logger.debug("No login button found, submitting via Enter key")
-        pw_input.send_keys(Keys.RETURN)
-
-    time.sleep(3)
-
-    # Verify login - multiple strategies
-    current_url = driver.current_url
-    cookies = driver.get_cookies()
-    cookie_names = [c["name"] for c in cookies]
-    logger.info(f"After login - URL: {current_url}")
-    logger.info(f"After login - {len(cookies)} cookies: {cookie_names}")
-
-    # Check multiple success indicators
-    url_ok = "login" not in current_url.lower() or "main" in current_url.lower()
-    has_session = any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
-                      for c in cookie_names)
-    many_cookies = len(cookies) > 3
-
-    login_success = url_ok or has_session or many_cookies
-
-    if not login_success:
-        # Check for error messages on page
-        try:
-            alerts = driver.find_elements(By.CSS_SELECTOR, '.error, .alert, .login_error, .msg_error')
-            if alerts:
-                logger.error(f"Login error message: {alerts[0].text}")
-        except Exception:
-            pass
-
-        # Check if alert dialog appeared
-        try:
-            alert = driver.switch_to.alert
-            alert_text = alert.text
-            logger.error(f"Login alert: {alert_text}")
-            alert.accept()
-        except Exception:
-            pass
-
-        logger.warning("Login may have failed, but proceeding to test with a page fetch")
-        login_success = True  # Proceed anyway and let crawling detect auth issues
-
-    logger.info(f"Login {'succeeded' if login_success else 'failed'}")
-    return login_success
+    logger.error("로그인 타임아웃 (5분)")
+    return False
 
 
 async def login(context: SeleniumContext) -> bool:
-    """Log into TheBell. Returns True on success."""
+    """Open TheBell login page for manual login. Returns True on success."""
     try:
-        return await asyncio.to_thread(
-            _login_sync, context.driver, settings.THEBELL_ID, settings.THEBELL_PW
-        )
+        return await asyncio.to_thread(_manual_login_sync, context.driver)
     except Exception as e:
         logger.error(f"Login error: {e}", exc_info=True)
         return False

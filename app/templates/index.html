@@ -8,9 +8,11 @@
         <h2>새 클리핑 시작</h2>
         <div class="date-info">
             <p><strong>수집 기간:</strong></p>
-            <p class="date-range">
-                {{ date_from.strftime('%Y-%m-%d %H:%M') }} ~ {{ date_to.strftime('%Y-%m-%d %H:%M') }}
-            </p>
+            <div class="date-inputs">
+                <input type="datetime-local" id="date-from" value="{{ date_from_str }}">
+                <span class="date-sep">~</span>
+                <input type="datetime-local" id="date-to" value="{{ date_to_str }}">
+            </div>
         </div>
         <div class="actions">
             <button id="btn-start-crawl" class="btn btn-primary" onclick="startCrawl()">
@@ -71,7 +73,13 @@ async function startCrawl() {
     statusText.textContent = '크롤링 시작 중...';
 
     try {
-        const res = await fetch('/api/crawl', { method: 'POST' });
+        const dateFrom = document.getElementById('date-from').value;
+        const dateTo = document.getElementById('date-to').value;
+        const res = await fetch('/api/crawl', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({date_from: dateFrom, date_to: dateTo})
+        });
         const data = await res.json();
         if (data.session_id) {
             statusText.textContent = '크롤링 진행 중... 잠시 기다려주세요.';

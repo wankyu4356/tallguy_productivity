@@ -2,6 +2,7 @@ import asyncio
 import uuid
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -12,6 +13,8 @@ from app.config import settings
 from app.models.schemas import SessionState, SessionStatus, ArticleWithContent
 from app.services.business_day import get_clipping_window
 from app.utils.logging import get_logger
+
+KST = ZoneInfo("Asia/Seoul")
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -30,16 +33,27 @@ def _get_browser_manager():
 
 # --- API Endpoints ---
 
+class CrawlRequest(BaseModel):
+    date_from: str | None = None  # "2026-03-05T10:00"
+    date_to: str | None = None    # "2026-03-06T10:00"
+
+
 class SelectRequest(BaseModel):
     article_ids: list[str]
 
 
 @router.post("/api/crawl")
-async def start_crawl(background_tasks: BackgroundTasks):
+async def start_crawl(body: CrawlRequest, background_tasks: BackgroundTasks):
     """Start crawling TheBell articles."""
     sessions = _get_sessions()
     session_id = str(uuid.uuid4())
-    date_from, date_to = get_clipping_window()
+
+    # Use user-provided dates or default business day window
+    if body.date_from and body.date_to:
+        date_from = datetime.fromisoformat(body.date_from).replace(tzinfo=KST)
+        date_to = datetime.fromisoformat(body.date_to).replace(tzinfo=KST)
+    else:
+        date_from, date_to = get_clipping_window()
 
     session = SessionState(
         session_id=session_id,
@@ -64,14 +78,14 @@ async def _crawl_task(session_id: str):
     ctx = None
 
     try:
-        ctx = await bm.new_context()
+        ctx = await bm.new_context(headless=False)
 
-        # Login
-        session.progress_messages.append("더벨 로그인 중...")
+        # Manual login — opens visible browser for user to log in
+        session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
         login_ok = await login(ctx)
         if not login_ok:
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 실패. 환경 설정에서 ID/PW를 확인하세요."
+            session.error = "더벨 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
             return
 
         session.progress_messages.append("로그인 성공!")
@@ -221,12 +235,17 @@ async def _generate_task(session_id: str):
             session.progress_messages.append(msg)
 
         # Step 1: Fetch articles and generate individual PDFs
-        on_progress("Step 1/5: 기사 본문 수집 및 PDF 생성 중...")
-        ctx = await bm.new_context()
+        on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
+        ctx = await bm.new_context(headless=False)
 
-        # Login first
+        # Manual login for article fetching
         from app.services.crawler import login
-        await login(ctx)
+        login_ok = await login(ctx)
+        if not login_ok:
+            session.status = SessionStatus.ERROR
+            session.error = "더벨 로그인 타임아웃."
+            return
+        on_progress("로그인 성공! 기사 본문 수집 및 PDF 생성 중...")
 
         articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
         session.articles_with_content = articles_with_content

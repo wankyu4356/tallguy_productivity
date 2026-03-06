@@ -75,5 +75,7 @@ async def index(request: Request):
         "request": request,
         "date_from": date_from,
         "date_to": date_to,
+        "date_from_str": date_from.strftime("%Y-%m-%dT%H:%M"),
+        "date_to_str": date_to.strftime("%Y-%m-%dT%H:%M"),
         "sessions": sessions,
     })

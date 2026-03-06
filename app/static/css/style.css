@@ -106,6 +106,28 @@ footer {
 .date-info { margin-bottom: 16px; }
 .date-range { font-size: 20px; font-weight: 600; color: var(--primary); }
 
+.date-inputs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}
+.date-inputs input[type="datetime-local"] {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 16px;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--card-bg);
+}
+.date-inputs input[type="datetime-local"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(26, 86, 219, 0.15);
+}
+.date-sep { font-size: 18px; color: var(--text-light); }
+
 .status-area {
     display: flex;
     align-items: center;
