@@ -58,29 +58,37 @@ def _login_sync(driver, thebell_id: str, thebell_pw: str) -> bool:
     logger.debug(f"Login page title: {driver.title}")
     logger.debug(f"Login page URL: {driver.current_url}")
 
-    # Find all text and password inputs on the page
-    text_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="text"]')
-    pw_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="password"]')
+    # Find login inputs — the page has duplicate inputs (mobile hidden + desktop visible).
+    # Target the visible desktop form by id attribute: input#id, input#pw
+    id_input = None
+    pw_input = None
 
-    logger.info(f"Found {len(text_inputs)} text inputs, {len(pw_inputs)} password inputs")
+    try:
+        id_input = driver.find_element(By.CSS_SELECTOR, 'input#id')
+        pw_input = driver.find_element(By.CSS_SELECTOR, 'input#pw')
+        logger.info("Found login inputs by #id / #pw selectors")
+    except NoSuchElementException:
+        logger.debug("input#id / input#pw not found, trying fallback")
 
-    # Debug: log each input's attributes
-    for inp in text_inputs:
-        logger.debug(f"  text input: name={inp.get_attribute('name')}, "
-                      f"id={inp.get_attribute('id')}, placeholder={inp.get_attribute('placeholder')}")
-    for inp in pw_inputs:
-        logger.debug(f"  pw input: name={inp.get_attribute('name')}, "
-                      f"id={inp.get_attribute('id')}, placeholder={inp.get_attribute('placeholder')}")
+    # Fallback: find displayed inputs with name="id" / name="pw"
+    if not id_input or not pw_input:
+        text_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="text"][name="id"]')
+        pw_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="password"][name="pw"]')
+        for inp in text_inputs:
+            if inp.is_displayed():
+                id_input = inp
+                break
+        for inp in pw_inputs:
+            if inp.is_displayed():
+                pw_input = inp
+                break
+        if id_input and pw_input:
+            logger.info("Found login inputs by displayed filter")
 
-    if not text_inputs or not pw_inputs:
-        # Log page source for debugging
-        page_source = driver.page_source
-        logger.error(f"Login form not found. Page title: {driver.title}")
-        logger.error(f"Page source (first 2000 chars):\n{page_source[:2000]}")
+    if not id_input or not pw_input:
+        logger.error(f"Login form inputs not found. Page title: {driver.title}")
+        logger.error(f"Page source (first 2000 chars):\n{driver.page_source[:2000]}")
         return False
-
-    id_input = text_inputs[0]
-    pw_input = pw_inputs[0]
 
     id_input.clear()
     id_input.send_keys(thebell_id)
