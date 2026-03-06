@@ -22,23 +22,22 @@ Commands:
   (없음)        환경 검증 후 서버 시작
   help          이 도움말 표시
   check         환경 검증만 실행 (서버 시작 안 함)
-  install       필수 패키지 + Playwright 브라우저 일괄 설치
+  install       필수 패키지 일괄 설치
   server        검증 없이 서버 바로 시작
 
 -------------------------------------------------------
 초기 설치 (처음 한 번만):
 -------------------------------------------------------
   1. pip install -r requirements.txt
-  2. python -m playwright install chromium
-  3. copy .env.example .env        (Windows)
+  2. copy .env.example .env        (Windows)
      cp .env.example .env          (Mac/Linux)
-  4. .env 파일 열어서 값 입력:
+  3. .env 파일 열어서 값 입력:
      - THEBELL_ID=더벨_아이디
      - THEBELL_PW=더벨_비밀번호
      - ANTHROPIC_API_KEY=sk-ant-...
 
 -------------------------------------------------------
-빠른 설치 (위 1~2번을 한 번에):
+빠른 설치:
 -------------------------------------------------------
   python preflight.py install
 
@@ -53,12 +52,12 @@ Commands:
 -------------------------------------------------------
 환경 검증 항목:
 -------------------------------------------------------
-  [1] Python 버전    3.10 ~ 3.13 필요 (Playwright 호환)
+  [1] Python 버전    >= 3.10 필요
   [2] 필수 패키지    requirements.txt의 모든 패키지
   [3] Timezone       Asia/Seoul (Windows: tzdata 필요)
   [4] .env 파일      프로젝트 루트에 존재 여부
   [5] 환경변수       THEBELL_ID, THEBELL_PW, ANTHROPIC_API_KEY
-  [6] 브라우저       Playwright Chromium 설치 여부
+  [6] Selenium       Chrome 자동 관리 (Selenium Manager)
 
 =======================================================
 """
@@ -71,7 +70,7 @@ PACKAGE_IMPORT_MAP = {
     "uvicorn[standard]": "uvicorn",
     "jinja2": "jinja2",
     "python-multipart": "multipart",
-    "playwright": "playwright",
+    "selenium": "selenium",
     "anthropic": "anthropic",
     "pypdf": "pypdf",
     "reportlab": "reportlab",
@@ -98,15 +97,11 @@ def print_result(name, passed, fix_hint=None):
 
 def check_python_version():
     ver = sys.version_info
-    ok = (3, 10) <= (ver.major, ver.minor) < (3, 14)
-    if ver >= (3, 14):
-        hint = "Playwright가 Python 3.14를 아직 지원하지 않습니다. Python 3.12 또는 3.13을 사용하세요."
-    else:
-        hint = "Python 3.10 이상, 3.13 이하를 설치하세요: https://www.python.org/downloads/"
+    ok = ver >= (3, 10)
     return print_result(
         f"Python 버전 (현재: {ver.major}.{ver.minor}.{ver.micro})",
         ok,
-        hint,
+        "Python 3.10 이상을 설치하세요: https://www.python.org/downloads/",
     )
 
 
@@ -170,27 +165,20 @@ def check_env_vars():
     return print_result(f"환경변수 ({len(REQUIRED_ENV_VARS)}개 모두 설정됨)", True)
 
 
-def check_playwright_browsers():
-    # Playwright 브라우저 캐시 디렉토리에서 chromium 확인
+def check_selenium():
+    """Selenium import 확인. Chrome/ChromeDriver는 Selenium Manager가 자동 관리."""
     try:
-        if sys.platform == "win32":
-            cache_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
-        elif sys.platform == "darwin":
-            cache_dir = Path.home() / "Library" / "Caches" / "ms-playwright"
-        else:
-            cache_dir = Path.home() / ".cache" / "ms-playwright"
-
-        chromium_dirs = list(cache_dir.glob("chromium-*")) if cache_dir.exists() else []
-        if chromium_dirs:
-            return print_result("Playwright Chromium 브라우저", True)
-    except Exception:
-        pass
-
-    return print_result(
-        "Playwright Chromium 브라우저",
-        False,
-        "python -m playwright install chromium",
-    )
+        import selenium
+        return print_result(
+            f"Selenium ({selenium.__version__}, Chrome 자동 관리)",
+            True,
+        )
+    except ImportError:
+        return print_result(
+            "Selenium",
+            False,
+            "pip install -r requirements.txt",
+        )
 
 
 def run_checks():
@@ -206,7 +194,7 @@ def run_checks():
         check_timezone,
         check_env_file,
         check_env_vars,
-        check_playwright_browsers,
+        check_selenium,
     ]
 
     results = [check() for check in checks]
@@ -227,7 +215,7 @@ def run_checks():
 
 
 def cmd_install():
-    """필수 패키지 + Playwright 브라우저 일괄 설치."""
+    """필수 패키지 일괄 설치."""
     print("=" * 55)
     print("  필수 패키지 설치 중...")
     print("=" * 55)
@@ -239,18 +227,10 @@ def cmd_install():
         sys.exit(1)
 
     print()
-    print("  Playwright Chromium 브라우저 설치 중...")
-    print()
-
-    rc = subprocess.call([sys.executable, "-m", "playwright", "install", "chromium"])
-    if rc != 0:
-        print("\n  Playwright 브라우저 설치 실패. 위 오류를 확인하세요.")
-        sys.exit(1)
-
-    print()
     print("=" * 55)
     print("  설치 완료!")
     print("  다음 단계: .env 파일 설정 후 python preflight.py 실행")
+    print("  (Chrome/ChromeDriver는 첫 실행 시 자동으로 다운로드됩니다)")
     print("=" * 55)
 
 

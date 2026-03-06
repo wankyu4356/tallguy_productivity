@@ -1,4 +1,9 @@
-from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
+from __future__ import annotations
+
+import asyncio
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 from app.config import settings
 from app.utils.logging import get_logger
@@ -6,36 +11,57 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+class SeleniumContext:
+    """Wraps a WebDriver instance, mirroring Playwright's BrowserContext interface."""
+
+    def __init__(self, driver: webdriver.Chrome):
+        self.driver = driver
+
+    async def close(self):
+        await asyncio.to_thread(self.driver.quit)
+
+
 class BrowserManager:
     def __init__(self):
-        self._playwright: Playwright | None = None
-        self._browser: Browser | None = None
+        self._chrome_options: Options | None = None
+        self._started: bool = False
 
     async def start(self):
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=settings.BROWSER_HEADLESS,
-        )
-        logger.info("Browser launched")
+        opts = Options()
+        if settings.BROWSER_HEADLESS:
+            opts.add_argument("--headless=new")
+        opts.add_argument("--window-size=1280,900")
+        opts.add_argument("--lang=ko-KR")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--disable-dev-shm-usage")
+        self._chrome_options = opts
+
+        # Warm-up: trigger Selenium Manager download on first run
+        try:
+            driver = await asyncio.to_thread(self._create_driver)
+            await asyncio.to_thread(driver.quit)
+            logger.info("Browser warm-up complete (Chrome + ChromeDriver ready)")
+        except Exception as e:
+            logger.warning(f"Browser warm-up failed: {e}")
+
+        self._started = True
+        logger.info("BrowserManager started")
 
     async def stop(self):
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
-        logger.info("Browser stopped")
+        self._started = False
+        logger.info("BrowserManager stopped")
 
-    async def new_context(self) -> BrowserContext:
-        if not self._browser:
-            raise RuntimeError("Browser not started. Call start() first.")
-        ctx = await self._browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-        )
-        ctx.set_default_timeout(settings.NAVIGATION_TIMEOUT_MS)
-        return ctx
+    async def new_context(self) -> SeleniumContext:
+        if not self._started:
+            raise RuntimeError("BrowserManager not started. Call start() first.")
+        driver = await asyncio.to_thread(self._create_driver)
+        driver.set_page_load_timeout(settings.NAVIGATION_TIMEOUT_MS / 1000)
+        return SeleniumContext(driver)
+
+    def _create_driver(self) -> webdriver.Chrome:
+        return webdriver.Chrome(options=self._chrome_options)
 
     @property
     def is_running(self) -> bool:
-        return self._browser is not None and self._browser.is_connected()
+        return self._started

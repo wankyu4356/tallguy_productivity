@@ -3,13 +3,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+import time
 from datetime import datetime
 from urllib.parse import urlencode
 
-from playwright.async_api import BrowserContext, Page, TimeoutError as PlaywrightTimeout
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from app.config import settings
 from app.models.schemas import ArticleInfo
+from app.services.browser import SeleniumContext
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -45,87 +49,115 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
     return f"{THEBELL_BASE}/free/content/{menu}.asp?{urlencode(params)}"
 
 
-async def login(context: BrowserContext) -> bool:
-    """Log into TheBell. Returns True on success."""
-    page = await context.new_page()
-    try:
-        await page.goto(THEBELL_LOGIN_URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1000)
+def _login_sync(driver, thebell_id: str, thebell_pw: str) -> bool:
+    """Synchronous login logic using Selenium."""
+    driver.get(THEBELL_LOGIN_URL)
+    time.sleep(1)
 
-        # Try to find and fill login form fields
-        # TheBell uses typical ID/PW form fields
-        id_selectors = ['input[name="USER_ID"]', 'input[name="user_id"]', '#USER_ID', '#user_id',
-                        'input[type="text"][name*="id" i]', 'input[type="text"]']
-        pw_selectors = ['input[name="USER_PW"]', 'input[name="user_pw"]', '#USER_PW', '#user_pw',
-                        'input[type="password"]']
+    # Try to find and fill login form fields
+    id_selectors = ['input[name="USER_ID"]', 'input[name="user_id"]', '#USER_ID', '#user_id',
+                    'input[type="text"][name*="id" i]', 'input[type="text"]']
+    pw_selectors = ['input[name="USER_PW"]', 'input[name="user_pw"]', '#USER_PW', '#user_pw',
+                    'input[type="password"]']
 
-        id_input = None
-        for sel in id_selectors:
+    id_input = None
+    for sel in id_selectors:
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+            if els:
+                id_input = els[0]
+                break
+        except Exception:
+            continue
+
+    pw_input = None
+    for sel in pw_selectors:
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+            if els:
+                pw_input = els[0]
+                break
+        except Exception:
+            continue
+
+    if not id_input or not pw_input:
+        logger.error("Login form fields not found")
+        return False
+
+    id_input.clear()
+    id_input.send_keys(thebell_id)
+    pw_input.clear()
+    pw_input.send_keys(thebell_pw)
+
+    # Click login button
+    login_btn_selectors_css = [
+        'input[type="submit"]', 'button[type="submit"]',
+        'a.btn_login', '.login_btn',
+        'input[value="로그인"]',
+    ]
+    login_btn_selectors_xpath = [
+        '//button[contains(text(),"로그인")]',
+        '//a[contains(text(),"로그인")]',
+    ]
+
+    clicked = False
+    for sel in login_btn_selectors_css:
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+            if els:
+                els[0].click()
+                clicked = True
+                break
+        except Exception:
+            continue
+
+    if not clicked:
+        for sel in login_btn_selectors_xpath:
             try:
-                el = page.locator(sel).first
-                if await el.count() > 0:
-                    id_input = el
-                    break
-            except Exception:
-                continue
-
-        pw_input = None
-        for sel in pw_selectors:
-            try:
-                el = page.locator(sel).first
-                if await el.count() > 0:
-                    pw_input = el
-                    break
-            except Exception:
-                continue
-
-        if not id_input or not pw_input:
-            logger.error("Login form fields not found")
-            return False
-
-        await id_input.fill(settings.THEBELL_ID)
-        await pw_input.fill(settings.THEBELL_PW)
-
-        # Click login button
-        login_btn_selectors = ['input[type="submit"]', 'button[type="submit"]',
-                               'a.btn_login', '.login_btn', 'button:has-text("로그인")',
-                               'input[value="로그인"]', 'a:has-text("로그인")']
-        clicked = False
-        for sel in login_btn_selectors:
-            try:
-                btn = page.locator(sel).first
-                if await btn.count() > 0:
-                    await btn.click()
+                els = driver.find_elements(By.XPATH, sel)
+                if els:
+                    els[0].click()
                     clicked = True
                     break
             except Exception:
                 continue
 
-        if not clicked:
-            # Try submitting the form directly
-            await page.keyboard.press("Enter")
+    if not clicked:
+        # Try submitting via Enter key
+        pw_input.send_keys(Keys.RETURN)
 
-        await page.wait_for_timeout(2000)
-        # Verify login by checking if we're redirected or if login form is gone
-        current_url = page.url
-        login_success = "login" not in current_url.lower() or "main" in current_url.lower()
+    time.sleep(2)
 
-        if not login_success:
-            # Check for any login error messages
-            error_text = await page.locator('.error, .alert, .login_error').text_content() if await page.locator('.error, .alert, .login_error').count() > 0 else ""
+    # Verify login
+    current_url = driver.current_url
+    login_success = "login" not in current_url.lower() or "main" in current_url.lower()
+
+    if not login_success:
+        try:
+            error_els = driver.find_elements(By.CSS_SELECTOR, '.error, .alert, .login_error')
+            error_text = error_els[0].text if error_els else ""
             if error_text:
                 logger.error(f"Login failed: {error_text}")
             else:
                 logger.warning("Login status uncertain, proceeding anyway")
                 login_success = True
+        except Exception:
+            logger.warning("Login status uncertain, proceeding anyway")
+            login_success = True
 
-        logger.info(f"Login {'succeeded' if login_success else 'failed'}")
-        return login_success
+    logger.info(f"Login {'succeeded' if login_success else 'failed'}")
+    return login_success
+
+
+async def login(context: SeleniumContext) -> bool:
+    """Log into TheBell. Returns True on success."""
+    try:
+        return await asyncio.to_thread(
+            _login_sync, context.driver, settings.THEBELL_ID, settings.THEBELL_PW
+        )
     except Exception as e:
         logger.error(f"Login error: {e}", exc_info=True)
         return False
-    finally:
-        await page.close()
 
 
 def _parse_datetime(date_str: str) -> datetime | None:
@@ -153,15 +185,14 @@ def _make_article_id(url: str, title: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
-async def _extract_articles_from_page(page: Page, category_key: str, category_label: str) -> list[ArticleInfo]:
-    """Extract article info from a list page."""
+def _extract_articles_from_page_sync(driver, category_key: str, category_label: str) -> list[ArticleInfo]:
+    """Extract article info from a list page (synchronous)."""
     articles = []
 
     # Wait for content to load (JS-rendered site)
-    await page.wait_for_timeout(2000)
+    time.sleep(2)
 
     # TheBell typically renders article lists in various containers
-    # Try multiple selectors to find article entries
     article_selectors = [
         '.articleList li', '.news_list li', '.listBox li',
         '.list_area li', 'ul.list li', '.article_list li',
@@ -171,16 +202,16 @@ async def _extract_articles_from_page(page: Page, category_key: str, category_la
 
     items = []
     for sel in article_selectors:
-        items = await page.locator(sel).all()
+        items = driver.find_elements(By.CSS_SELECTOR, sel)
         if items:
             break
 
     if not items:
         # Fallback: try to find any links that look like article links
-        items = await page.locator('a[href*="article.asp"]').all()
-        for item in items:
-            href = await item.get_attribute("href") or ""
-            title = (await item.text_content() or "").strip()
+        link_els = driver.find_elements(By.CSS_SELECTOR, 'a[href*="article.asp"]')
+        for el in link_els:
+            href = el.get_attribute("href") or ""
+            title = el.text.strip()
             if not title or len(title) < 5:
                 continue
             if not href.startswith("http"):
@@ -199,11 +230,12 @@ async def _extract_articles_from_page(page: Page, category_key: str, category_la
     for item in items:
         try:
             # Get the link
-            link = item.locator("a").first
-            if await link.count() == 0:
+            links = item.find_elements(By.CSS_SELECTOR, "a")
+            if not links:
                 continue
-            href = await link.get_attribute("href") or ""
-            title = (await link.text_content() or "").strip()
+            link = links[0]
+            href = link.get_attribute("href") or ""
+            title = link.text.strip()
 
             if not title or len(title) < 3:
                 continue
@@ -212,18 +244,18 @@ async def _extract_articles_from_page(page: Page, category_key: str, category_la
                 href = THEBELL_BASE + href if href.startswith("/") else f"{THEBELL_BASE}/{href}"
 
             # Try to extract date
-            date_el = item.locator(".date, .time, .datetime, span.txt_time, .news_date")
             date_str = ""
-            if await date_el.count() > 0:
-                date_str = (await date_el.first.text_content() or "").strip()
+            date_els = item.find_elements(By.CSS_SELECTOR, ".date, .time, .datetime, span.txt_time, .news_date")
+            if date_els:
+                date_str = date_els[0].text.strip()
 
             published_at = _parse_datetime(date_str) if date_str else None
 
             # Try to extract summary
-            summary_el = item.locator(".summary, .desc, .txt, p")
             summary = ""
-            if await summary_el.count() > 0:
-                summary = (await summary_el.first.text_content() or "").strip()
+            summary_els = item.find_elements(By.CSS_SELECTOR, ".summary, .desc, .txt, p")
+            if summary_els:
+                summary = summary_els[0].text.strip()
                 if summary == title:
                     summary = ""
 
@@ -244,64 +276,58 @@ async def _extract_articles_from_page(page: Page, category_key: str, category_la
     return articles
 
 
-async def crawl_category(
-    context: BrowserContext,
+def _crawl_category_sync(
+    driver,
     category_key: str,
     date_from: datetime,
     date_to: datetime,
     on_progress: callable | None = None,
 ) -> list[ArticleInfo]:
-    """Crawl articles from a specific category within the date window."""
+    """Synchronous category crawling logic."""
     cat_info = CATEGORY_MAP[category_key]
     all_articles = []
     page_num = 1
     max_pages = 20  # Safety limit
 
-    page = await context.new_page()
-    try:
-        while page_num <= max_pages:
-            url = build_list_url(cat_info, page_num)
+    timeout_sec = settings.CRAWL_TIMEOUT_MS / 1000
+    driver.set_page_load_timeout(timeout_sec)
+
+    while page_num <= max_pages:
+        url = build_list_url(cat_info, page_num)
+        try:
+            driver.get(url)
+        except TimeoutException:
+            logger.warning(f"Timeout loading {url}, retrying...")
             try:
-                await page.goto(url, wait_until="domcontentloaded",
-                                timeout=settings.CRAWL_TIMEOUT_MS)
-            except PlaywrightTimeout:
-                logger.warning(f"Timeout loading {url}, retrying...")
-                try:
-                    await page.goto(url, wait_until="domcontentloaded",
-                                    timeout=settings.CRAWL_TIMEOUT_MS)
-                except PlaywrightTimeout:
-                    logger.error(f"Failed to load {url} after retry")
-                    break
-
-            articles = await _extract_articles_from_page(page, category_key, cat_info["label"])
-
-            if not articles:
+                driver.get(url)
+            except TimeoutException:
+                logger.error(f"Failed to load {url} after retry")
                 break
 
-            # Filter by date window
-            for a in articles:
-                if a.published_at:
-                    if date_from <= a.published_at <= date_to:
-                        all_articles.append(a)
-                    elif a.published_at < date_from:
-                        # Articles older than our window, stop paginating
-                        if on_progress:
-                            on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 완료")
-                        return all_articles
-                else:
-                    # No date info, include it (will be filtered later if possible)
+        articles = _extract_articles_from_page_sync(driver, category_key, cat_info["label"])
+
+        if not articles:
+            break
+
+        # Filter by date window
+        for a in articles:
+            if a.published_at:
+                if date_from <= a.published_at <= date_to:
                     all_articles.append(a)
+                elif a.published_at < date_from:
+                    # Articles older than our window, stop paginating
+                    if on_progress:
+                        on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 완료")
+                    return all_articles
+            else:
+                # No date info, include it
+                all_articles.append(a)
 
-            if on_progress:
-                on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
+        if on_progress:
+            on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
 
-            page_num += 1
-            await page.wait_for_timeout(500)  # Polite crawling delay
-
-    except Exception as e:
-        logger.error(f"Error crawling {cat_info['label']}: {e}", exc_info=True)
-    finally:
-        await page.close()
+        page_num += 1
+        time.sleep(0.5)  # Polite crawling delay
 
     if on_progress:
         on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 완료")
@@ -309,8 +335,25 @@ async def crawl_category(
     return all_articles
 
 
+async def crawl_category(
+    context: SeleniumContext,
+    category_key: str,
+    date_from: datetime,
+    date_to: datetime,
+    on_progress: callable | None = None,
+) -> list[ArticleInfo]:
+    """Crawl articles from a specific category within the date window."""
+    try:
+        return await asyncio.to_thread(
+            _crawl_category_sync, context.driver, category_key, date_from, date_to, on_progress
+        )
+    except Exception as e:
+        logger.error(f"Error crawling {category_key}: {e}", exc_info=True)
+        return []
+
+
 async def crawl_all_categories(
-    context: BrowserContext,
+    context: SeleniumContext,
     date_from: datetime,
     date_to: datetime,
     on_progress: callable | None = None,
