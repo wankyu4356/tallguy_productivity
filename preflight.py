@@ -2,7 +2,7 @@
 """더벨 News Clipper - Preflight Check
 
 서버 실행 전 필수 환경을 사전 검증합니다.
-Usage: python preflight.py
+Usage: python preflight.py [command]
 """
 
 import importlib
@@ -10,6 +10,58 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+HELP_TEXT = """\
+=======================================================
+  더벨 News Clipper - 사용 가이드
+=======================================================
+
+사용법: python preflight.py [command]
+
+Commands:
+  (없음)        환경 검증 후 서버 시작
+  help          이 도움말 표시
+  check         환경 검증만 실행 (서버 시작 안 함)
+  install       필수 패키지 + Playwright 브라우저 일괄 설치
+  server        검증 없이 서버 바로 시작
+
+-------------------------------------------------------
+초기 설치 (처음 한 번만):
+-------------------------------------------------------
+  1. pip install -r requirements.txt
+  2. python -m playwright install chromium
+  3. copy .env.example .env        (Windows)
+     cp .env.example .env          (Mac/Linux)
+  4. .env 파일 열어서 값 입력:
+     - THEBELL_ID=더벨_아이디
+     - THEBELL_PW=더벨_비밀번호
+     - ANTHROPIC_API_KEY=sk-ant-...
+
+-------------------------------------------------------
+빠른 설치 (위 1~2번을 한 번에):
+-------------------------------------------------------
+  python preflight.py install
+
+-------------------------------------------------------
+서버 실행:
+-------------------------------------------------------
+  python preflight.py              검증 후 시작
+  python preflight.py server       바로 시작
+
+  서버 시작 후 브라우저에서 http://localhost:8000 접속
+
+-------------------------------------------------------
+환경 검증 항목:
+-------------------------------------------------------
+  [1] Python 버전    >= 3.10 필요
+  [2] 필수 패키지    requirements.txt의 모든 패키지
+  [3] Timezone       Asia/Seoul (Windows: tzdata 필요)
+  [4] .env 파일      프로젝트 루트에 존재 여부
+  [5] 환경변수       THEBELL_ID, THEBELL_PW, ANTHROPIC_API_KEY
+  [6] 브라우저       Playwright Chromium 설치 여부
+
+=======================================================
+"""
 
 PROJECT_ROOT = Path(__file__).parent
 
@@ -137,7 +189,8 @@ def check_playwright_browsers():
     )
 
 
-def main():
+def run_checks():
+    """모든 검증을 실행하고 결과를 반환한다."""
     print("=" * 55)
     print("  더벨 News Clipper - Preflight Check")
     print("=" * 55)
@@ -160,18 +213,78 @@ def main():
 
     if all_passed:
         print("  모든 체크 통과! (All checks passed)")
-        print("=" * 55)
-        answer = input("\n  서버를 시작할까요? (Y/n): ").strip().lower()
-        if answer in ("", "y", "yes"):
-            print()
-            import uvicorn
-
-            uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
     else:
         failed = results.count(False)
         print(f"  {failed}개 항목 실패. 위의 안내를 따라 수정 후 다시 실행하세요.")
-        print("=" * 55)
+        print(f"  도움말: python preflight.py help")
+
+    print("=" * 55)
+    return all_passed
+
+
+def cmd_install():
+    """필수 패키지 + Playwright 브라우저 일괄 설치."""
+    print("=" * 55)
+    print("  필수 패키지 설치 중...")
+    print("=" * 55)
+    print()
+
+    rc = subprocess.call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    if rc != 0:
+        print("\n  pip install 실패. 위 오류를 확인하세요.")
         sys.exit(1)
+
+    print()
+    print("  Playwright Chromium 브라우저 설치 중...")
+    print()
+
+    rc = subprocess.call([sys.executable, "-m", "playwright", "install", "chromium"])
+    if rc != 0:
+        print("\n  Playwright 브라우저 설치 실패. 위 오류를 확인하세요.")
+        sys.exit(1)
+
+    print()
+    print("=" * 55)
+    print("  설치 완료!")
+    print("  다음 단계: .env 파일 설정 후 python preflight.py 실행")
+    print("=" * 55)
+
+
+def start_server():
+    """uvicorn 서버를 시작한다."""
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+def main():
+    cmd = sys.argv[1].lower() if len(sys.argv) > 1 else ""
+
+    if cmd in ("help", "-h", "--help", "/?"):
+        print(HELP_TEXT)
+        return
+
+    if cmd == "install":
+        cmd_install()
+        return
+
+    if cmd == "server":
+        start_server()
+        return
+
+    if cmd == "check":
+        ok = run_checks()
+        sys.exit(0 if ok else 1)
+
+    # 기본: 검증 후 서버 시작
+    ok = run_checks()
+    if not ok:
+        sys.exit(1)
+
+    answer = input("\n  서버를 시작할까요? (Y/n): ").strip().lower()
+    if answer in ("", "y", "yes"):
+        print()
+        start_server()
 
 
 if __name__ == "__main__":
