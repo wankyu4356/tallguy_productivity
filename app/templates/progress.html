@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}진행 상황 - 더벨 News Clipper{% endblock %}
+{% block content %}
+<div class="container">
+    <h1>PDF 생성 진행 상황</h1>
+
+    <div class="card">
+        <h2>현재 상태: <span id="current-status">{{ session.status.value }}</span></h2>
+
+        <ul class="progress-steps" id="progress-steps">
+            <li class="progress-step step-pending" id="step-fetch">
+                <div class="step-icon">1</div>
+                <span>기사 본문 수집 및 PDF 생성</span>
+            </li>
+            <li class="progress-step step-pending" id="step-classify">
+                <div class="step-icon">2</div>
+                <span>AI 분류</span>
+            </li>
+            <li class="progress-step step-pending" id="step-merge">
+                <div class="step-icon">3</div>
+                <span>PDF 합본</span>
+            </li>
+            <li class="progress-step step-pending" id="step-docx">
+                <div class="step-icon">4</div>
+                <span>DOCX 목차 생성</span>
+            </li>
+            <li class="progress-step step-pending" id="step-zip">
+                <div class="step-icon">5</div>
+                <span>ZIP 패키징</span>
+            </li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>실시간 로그</h2>
+        <div class="log-area" id="log-area">
+            {% for msg in session.progress_messages %}
+            <p class="log-info">{{ msg }}</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div id="done-area" style="display: none; text-align: center; margin-top: 20px;">
+        <a href="/result/{{ session.session_id }}" class="btn btn-primary" style="font-size: 16px; padding: 12px 32px;">
+            결과 확인 및 다운로드
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = "{{ session.session_id }}";
+const logArea = document.getElementById('log-area');
+const steps = ['fetch', 'classify', 'merge', 'docx', 'zip'];
+let currentStep = 0;
+
+function updateStep(stepName, status) {
+    const el = document.getElementById(`step-${stepName}`);
+    if (!el) return;
+    el.className = `progress-step step-${status}`;
+    if (status === 'done') {
+        el.querySelector('.step-icon').textContent = '\u2713';
+    }
+}
+
+// Connect to SSE for real-time progress
+const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
+
+evtSource.onmessage = function(event) {
+    const msg = event.data;
+    appendLog('log-area', msg, 'info');
+
+    // Update steps based on message content
+    if (msg.includes('Step 1') || msg.includes('기사 수집') || msg.includes('PDF 생성')) {
+        updateStep('fetch', 'active');
+    }
+    if (msg.includes('Step 2') || msg.includes('AI 분류')) {
+        updateStep('fetch', 'done');
+        updateStep('classify', 'active');
+    }
+    if (msg.includes('Step 3') || msg.includes('PDF 합본')) {
+        updateStep('classify', 'done');
+        updateStep('merge', 'active');
+    }
+    if (msg.includes('Step 4') || msg.includes('DOCX')) {
+        updateStep('merge', 'done');
+        updateStep('docx', 'active');
+    }
+    if (msg.includes('Step 5') || msg.includes('ZIP')) {
+        updateStep('docx', 'done');
+        updateStep('zip', 'active');
+    }
+    if (msg.includes('모든 작업 완료')) {
+        steps.forEach(s => updateStep(s, 'done'));
+    }
+};
+
+evtSource.addEventListener('done', function(event) {
+    evtSource.close();
+    const status = event.data;
+    document.getElementById('current-status').textContent = status;
+
+    if (status === 'done') {
+        steps.forEach(s => updateStep(s, 'done'));
+        document.getElementById('done-area').style.display = 'block';
+        appendLog('log-area', '모든 작업이 완료되었습니다!', 'success');
+    } else if (status === 'error') {
+        appendLog('log-area', '오류가 발생했습니다.', 'error');
+    }
+});
+
+evtSource.onerror = function() {
+    evtSource.close();
+    appendLog('log-area', '연결이 끊어졌습니다. 페이지를 새로고침하세요.', 'error');
+};
+</script>
+{% endblock %}

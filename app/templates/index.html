@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}더벨 News Clipper - 대시보드{% endblock %}
+{% block content %}
+<div class="container">
+    <h1>더벨 Daily News Clipping</h1>
+
+    <div class="card">
+        <h2>새 클리핑 시작</h2>
+        <div class="date-info">
+            <p><strong>수집 기간:</strong></p>
+            <p class="date-range">
+                {{ date_from.strftime('%Y-%m-%d %H:%M') }} ~ {{ date_to.strftime('%Y-%m-%d %H:%M') }}
+            </p>
+        </div>
+        <div class="actions">
+            <button id="btn-start-crawl" class="btn btn-primary" onclick="startCrawl()">
+                크롤링 시작
+            </button>
+        </div>
+        <div id="crawl-status" class="status-area" style="display:none;">
+            <div class="spinner"></div>
+            <p id="crawl-status-text">크롤링 준비 중...</p>
+        </div>
+    </div>
+
+    {% if sessions %}
+    <div class="card">
+        <h2>이전 세션</h2>
+        <table class="session-table">
+            <thead>
+                <tr>
+                    <th>세션 ID</th>
+                    <th>상태</th>
+                    <th>생성일시</th>
+                    <th>기사 수</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sid, s in sessions.items() %}
+                <tr>
+                    <td>{{ sid[:8] }}...</td>
+                    <td><span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span></td>
+                    <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ s.articles | length }}</td>
+                    <td>
+                        {% if s.status.value == 'crawl_done' or s.status.value == 'recommend_done' %}
+                        <a href="/review/{{ sid }}" class="btn btn-sm">기사 선택</a>
+                        {% elif s.status.value == 'done' %}
+                        <a href="/result/{{ sid }}" class="btn btn-sm">다운로드</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function startCrawl() {
+    const btn = document.getElementById('btn-start-crawl');
+    const statusArea = document.getElementById('crawl-status');
+    const statusText = document.getElementById('crawl-status-text');
+
+    btn.disabled = true;
+    statusArea.style.display = 'flex';
+    statusText.textContent = '크롤링 시작 중...';
+
+    try {
+        const res = await fetch('/api/crawl', { method: 'POST' });
+        const data = await res.json();
+        if (data.session_id) {
+            statusText.textContent = '크롤링 진행 중... 잠시 기다려주세요.';
+            pollCrawlStatus(data.session_id);
+        } else {
+            statusText.textContent = '오류: ' + (data.detail || '알 수 없는 오류');
+            btn.disabled = false;
+        }
+    } catch (e) {
+        statusText.textContent = '오류: ' + e.message;
+        btn.disabled = false;
+    }
+}
+
+async function pollCrawlStatus(sessionId) {
+    const statusText = document.getElementById('crawl-status-text');
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/crawl/${sessionId}`);
+            const data = await res.json();
+            if (data.status === 'crawl_done') {
+                clearInterval(interval);
+                statusText.textContent = `크롤링 완료! ${data.article_count}개 기사 수집됨. 이동 중...`;
+                setTimeout(() => window.location.href = `/review/${sessionId}`, 1000);
+            } else if (data.status === 'error') {
+                clearInterval(interval);
+                statusText.textContent = '오류: ' + data.error;
+                document.getElementById('btn-start-crawl').disabled = false;
+            } else {
+                statusText.textContent = `크롤링 진행 중... (${data.progress || ''})`;
+            }
+        } catch (e) {
+            clearInterval(interval);
+            statusText.textContent = '상태 확인 오류: ' + e.message;
+        }
+    }, 2000);
+}
+</script>
+{% endblock %}

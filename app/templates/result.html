@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}결과 - 더벨 News Clipper{% endblock %}
+{% block content %}
+<div class="container">
+    <h1>클리핑 완료</h1>
+
+    {% if session.status.value == 'done' %}
+    <div class="card download-area">
+        <h2>다운로드</h2>
+        <p style="margin-bottom: 20px; color: var(--text-light);">
+            {{ session.selected_ids | length }}개 기사가 클리핑되었습니다.
+        </p>
+        <a href="/api/download/{{ session.session_id }}" class="btn btn-primary">
+            ZIP 파일 다운로드
+        </a>
+    </div>
+
+    {% if session.classification %}
+    <div class="card">
+        <h2>분류 구조</h2>
+        <ul class="classification-tree">
+            {% for cat in session.classification.categories %}
+            <li class="cat-1">{{ loop.index }}. {{ cat.name }}
+                {% if cat.articles %}
+                <ul>
+                    {% for aid in cat.articles %}
+                    {% set article = None %}
+                    {% for a in session.articles_with_content %}
+                        {% if a.info.id == aid %}
+                            {% set article = a %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if article %}
+                    <li class="cat-3">{{ article.info.title }}</li>
+                    {% endif %}
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if cat.subcategories %}
+                <ul>
+                    {% for sub in cat.subcategories %}
+                    <li class="cat-2">{{ "ABCDEFG"[loop.index0] }}. {{ sub.name }}
+                        {% if sub.articles %}
+                        <ul>
+                            {% for aid in sub.articles %}
+                            <li class="cat-3">
+                                {% for a in session.articles_with_content %}
+                                    {% if a.info.id == aid %}{{ a.info.title }}{% endif %}
+                                {% endfor %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+
+                        {% if sub.sub_items %}
+                        <ul>
+                            {% for si in sub.sub_items %}
+                            <li class="cat-2">- {{ si.name }}
+                                {% if si.articles %}
+                                <ul>
+                                    {% for aid in si.articles %}
+                                    <li class="cat-3">
+                                        {% for a in session.articles_with_content %}
+                                            {% if a.info.id == aid %}{{ a.info.title }}{% endif %}
+                                        {% endfor %}
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% elif session.status.value == 'error' %}
+    <div class="card">
+        <h2 style="color: var(--error);">오류 발생</h2>
+        <p>{{ session.error }}</p>
+    </div>
+    {% else %}
+    <div class="card">
+        <p>아직 진행 중입니다. <a href="/progress/{{ session.session_id }}">진행 상황 확인</a></p>
+    </div>
+    {% endif %}
+
+    <div style="text-align: center; margin-top: 20px;">
+        <a href="/" class="btn">새 클리핑 시작</a>
+    </div>
+</div>
+{% endblock %}

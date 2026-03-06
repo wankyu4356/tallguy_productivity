@@ -1,0 +1,9 @@
+[project]
+name = "thebell-news-clipper"
+version = "0.1.0"
+description = "더벨 뉴스 클리핑 자동화 도구"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

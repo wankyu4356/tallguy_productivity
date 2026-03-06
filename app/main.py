@@ -1,0 +1,69 @@
+import asyncio
+import shutil
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.config import settings
+from app.models.schemas import SessionState
+from app.routers import health, clipper
+from app.services.browser import BrowserManager
+from app.utils.logging import setup_logging, get_logger
+
+logger = get_logger(__name__)
+
+# In-memory session store
+sessions: dict[str, SessionState] = {}
+
+# Browser manager singleton
+browser_manager = BrowserManager()
+
+
+def cleanup_old_sessions():
+    """Remove output directories older than CLEANUP_HOURS."""
+    if not settings.OUTPUT_DIR.exists():
+        return
+    cutoff = time.time() - settings.CLEANUP_HOURS * 3600
+    for p in settings.OUTPUT_DIR.iterdir():
+        if p.is_dir() and p.name != ".gitkeep" and p.stat().st_mtime < cutoff:
+            shutil.rmtree(p, ignore_errors=True)
+            logger.info(f"Cleaned up old session: {p.name}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging(settings.LOG_LEVEL)
+    settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    cleanup_old_sessions()
+
+    await browser_manager.start()
+    logger.info("Application started")
+    yield
+    await browser_manager.stop()
+    logger.info("Application stopped")
+
+
+app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+app.include_router(health.router)
+app.include_router(clipper.router)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    from app.services.business_day import get_clipping_window
+    date_from, date_to = get_clipping_window()
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "date_from": date_from,
+        "date_to": date_to,
+        "sessions": sessions,
+    })
