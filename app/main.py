@@ -38,6 +38,16 @@ def cleanup_old_sessions():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(settings.LOG_LEVEL)
+
+    errors = settings.validate_required()
+    if errors:
+        for err in errors:
+            logger.error(f"Configuration error: {err}")
+        raise SystemExit(
+            "필수 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.\n"
+            "Run 'python preflight.py' for detailed diagnostics."
+        )
+
     settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cleanup_old_sessions()
 
