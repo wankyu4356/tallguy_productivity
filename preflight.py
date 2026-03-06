@@ -53,7 +53,7 @@ Commands:
 -------------------------------------------------------
 환경 검증 항목:
 -------------------------------------------------------
-  [1] Python 버전    >= 3.10 필요
+  [1] Python 버전    3.10 ~ 3.13 필요 (Playwright 호환)
   [2] 필수 패키지    requirements.txt의 모든 패키지
   [3] Timezone       Asia/Seoul (Windows: tzdata 필요)
   [4] .env 파일      프로젝트 루트에 존재 여부
@@ -98,11 +98,15 @@ def print_result(name, passed, fix_hint=None):
 
 def check_python_version():
     ver = sys.version_info
-    ok = ver >= (3, 10)
+    ok = (3, 10) <= (ver.major, ver.minor) < (3, 14)
+    if ver >= (3, 14):
+        hint = "Playwright가 Python 3.14를 아직 지원하지 않습니다. Python 3.12 또는 3.13을 사용하세요."
+    else:
+        hint = "Python 3.10 이상, 3.13 이하를 설치하세요: https://www.python.org/downloads/"
     return print_result(
         f"Python 버전 (현재: {ver.major}.{ver.minor}.{ver.micro})",
         ok,
-        "Python 3.10 이상을 설치하세요: https://www.python.org/downloads/",
+        hint,
     )
 
 
