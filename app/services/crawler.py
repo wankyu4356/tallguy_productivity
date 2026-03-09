@@ -524,7 +524,25 @@ def _click_menu(driver, menu_text: str) -> bool:
     except Exception:
         pass
 
-    logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
+    # Debug: dump all visible link texts on the page so we can find the right menu names
+    try:
+        all_links = driver.find_elements(By.TAG_NAME, "a")
+        visible_texts = []
+        for link in all_links:
+            try:
+                text = link.text.strip()
+                if text and link.is_displayed() and len(text) < 30:
+                    href = link.get_attribute("href") or ""
+                    visible_texts.append(f"'{text}'→{href}")
+            except Exception:
+                continue
+        logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
+        # Log in chunks to avoid truncation
+        for i in range(0, len(visible_texts), 10):
+            chunk = visible_texts[i:i+10]
+            logger.info(f"[페이지 링크 {i+1}~{i+len(chunk)}] {' | '.join(chunk)}")
+    except Exception:
+        logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
     return False
 
 
