@@ -40,13 +40,13 @@
                                onchange="updateSelectionCount()">
                         <div class="article-content-wrap">
                             <div class="article-header">
-                                <span class="article-title">{{ a.title }}</span>
+                                <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
                                 {% if rec and rec.recommended %}
                                 <span class="recommendation-badge">AI 추천</span>
                                 {% endif %}
                                 <span class="article-meta-inline">
                                     <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') if a.published_at else '시간 미상' }}</span>
+                                    <span class="article-date">{% if a.published_at %}{{ a.published_at.strftime('%m-%d %H:%M') if (a.published_at.hour or a.published_at.minute) else a.published_at.strftime('%m-%d') }}{% else %}시간 미상{% endif %}</span>
                                 </span>
                             </div>
                             {% if rec and rec.reason %}
@@ -75,10 +75,10 @@
                                onchange="updateSelectionCount()">
                         <div class="article-content-wrap">
                             <div class="article-header">
-                                <span class="article-title">{{ a.title }}</span>
+                                <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
                                 <span class="article-meta-inline">
                                     <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') if a.published_at else '시간 미상' }}</span>
+                                    <span class="article-date">{% if a.published_at %}{{ a.published_at.strftime('%m-%d %H:%M') if (a.published_at.hour or a.published_at.minute) else a.published_at.strftime('%m-%d') }}{% else %}시간 미상{% endif %}</span>
                                 </span>
                             </div>
                             {% if a.summary %}

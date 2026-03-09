@@ -204,7 +204,8 @@ footer {
     gap: 8px;
 }
 
-.article-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.article-title { font-weight: 600; font-size: 14px; color: var(--text); text-decoration: none; }
+a.article-title:hover { color: var(--primary); text-decoration: underline; }
 
 .article-meta-inline {
     display: inline-flex;

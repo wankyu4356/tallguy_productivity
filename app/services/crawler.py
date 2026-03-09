@@ -529,37 +529,109 @@ def _navigate_to_section(driver, section_code: str) -> bool:
 
 def _click_next_page(driver) -> bool:
     """Click the next page link in pagination. Returns False if no more pages."""
-    # Common pagination patterns
+    # Common pagination container selectors (TheBell uses various patterns)
     paging_selectors = [
         ".paging", ".pagination", ".page_num", ".page_nav",
         ".pageNum", "#paging", ".board_paging",
+        # TheBell-specific selectors
+        "div.paging_wrap", "div.paging_area", ".page_control",
+        "td[align='center']",  # old-style table-based pagination
     ]
 
-    # First, try to find a "next" or "다음" button
+    # Strategy 0: Try JavaScript-based pagination (TheBell often uses goPage/goList)
+    try:
+        # Find current page number from the page
+        current_page = driver.execute_script("""
+            // Look for active/current page indicator
+            var selectors = [
+                '.paging strong', '.paging .on', '.paging b',
+                '.pagination .active', '.page_num strong',
+                'td strong', 'td b.on', 'td span.on'
+            ];
+            for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el) {
+                    var num = el.textContent.trim();
+                    if (/^\\d+$/.test(num)) return parseInt(num);
+                }
+            }
+            return 0;
+        """)
+        if current_page and current_page > 0:
+            next_page = current_page + 1
+            # Try common TheBell JS pagination functions
+            for func in ["goPage", "goList", "fn_goPage", "movePage"]:
+                try:
+                    result = driver.execute_script(f"""
+                        if (typeof {func} === 'function') {{
+                            {func}({next_page});
+                            return true;
+                        }}
+                        return false;
+                    """)
+                    if result:
+                        logger.info(f"JS 페이지네이션: {func}({next_page})")
+                        time.sleep(2)
+                        return True
+                except Exception:
+                    continue
+
+            # Try clicking a link/element with onclick containing page number
+            try:
+                onclick_els = driver.find_elements(
+                    By.XPATH,
+                    f"//*[contains(@onclick, '{next_page}') and ("
+                    f"contains(@onclick, 'goPage') or "
+                    f"contains(@onclick, 'goList') or "
+                    f"contains(@onclick, 'movePage') or "
+                    f"contains(@onclick, 'fn_goPage'))]"
+                )
+                for el in onclick_els:
+                    txt = el.text.strip()
+                    if txt == str(next_page) or not txt:
+                        if el.is_displayed():
+                            logger.info(f"onclick 페이지네이션 클릭: {next_page}")
+                            el.click()
+                            time.sleep(2)
+                            return True
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Strategy 1: Find a "next" or "다음" button
     for sel in paging_selectors:
         try:
             container = driver.find_elements(By.CSS_SELECTOR, sel)
             if not container:
                 continue
-            next_links = container[0].find_elements(By.CSS_SELECTOR, "a")
-            for link in next_links:
+            # Search for links and also images/buttons that act as next
+            clickables = container[0].find_elements(By.CSS_SELECTOR, "a, button, img")
+            for link in clickables:
                 text = link.text.strip()
                 title_attr = (link.get_attribute("title") or "").lower()
-                if text in ["다음", "›", "»", ">", "Next"] or "다음" in title_attr or "next" in title_attr:
+                alt_attr = (link.get_attribute("alt") or "").lower()
+                src_attr = (link.get_attribute("src") or "").lower()
+                onclick = (link.get_attribute("onclick") or "").lower()
+                if (text in ["다음", "›", "»", ">", "Next", ">>"]
+                    or "다음" in title_attr or "next" in title_attr
+                    or "다음" in alt_attr or "next" in alt_attr
+                    or "next" in src_attr
+                    or "btn_next" in src_attr or "btn_right" in src_attr):
                     if link.is_displayed():
-                        logger.info(f"다음 페이지 클릭: '{text}'")
+                        logger.info(f"다음 페이지 클릭: '{text or title_attr or alt_attr}'")
                         link.click()
-                        time.sleep(1.5)
+                        time.sleep(2)
                         return True
         except Exception:
             continue
 
-    # Fallback: find page number links and click the next number
+    # Strategy 2: Find page number links and click the next number
     try:
-        # Look for the currently active page number
         active_selectors = [
-            ".paging strong", ".paging .on", ".pagination .active",
-            ".page_num strong", ".page_num .on",
+            ".paging strong", ".paging .on", ".paging b",
+            ".pagination .active", ".page_num strong", ".page_num .on",
+            "td strong", "td b",
         ]
         for sel in active_selectors:
             actives = driver.find_elements(By.CSS_SELECTOR, sel)
@@ -567,20 +639,41 @@ def _click_next_page(driver) -> bool:
                 current_num = actives[0].text.strip()
                 if current_num.isdigit():
                     next_num = str(int(current_num) + 1)
-                    # Find a link with the next page number
-                    parent = actives[0].find_element(By.XPATH, "./..")
-                    sibling_links = parent.find_elements(By.TAG_NAME, "a") if parent else []
-                    # Also check the paging container
-                    if not sibling_links:
-                        paging_container = actives[0].find_element(By.XPATH, "./../..")
-                        sibling_links = paging_container.find_elements(By.TAG_NAME, "a")
-                    for link in sibling_links:
-                        if link.text.strip() == next_num and link.is_displayed():
-                            logger.info(f"페이지 {next_num} 클릭")
-                            link.click()
-                            time.sleep(1.5)
-                            return True
+                    # Search up to 3 parent levels for sibling links
+                    ancestor = actives[0]
+                    for _ in range(3):
+                        ancestor = ancestor.find_element(By.XPATH, "./..")
+                        sibling_links = ancestor.find_elements(By.TAG_NAME, "a")
+                        for link in sibling_links:
+                            if link.text.strip() == next_num and link.is_displayed():
+                                logger.info(f"페이지 {next_num} 클릭")
+                                link.click()
+                                time.sleep(2)
+                                return True
                 break
+    except Exception:
+        pass
+
+    # Strategy 3: URL-based pagination
+    try:
+        current_url = driver.current_url
+        if "NewsList.asp" in current_url:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(current_url)
+            params = urllib.parse.parse_qs(parsed.query)
+            current_page = int(params.get("Page", params.get("page", ["1"]))[0])
+            next_url = current_url
+            if "Page=" in current_url or "page=" in current_url:
+                next_url = re.sub(r'[Pp]age=\d+', f'Page={current_page + 1}', current_url)
+            else:
+                sep = "&" if "?" in current_url else "?"
+                next_url = f"{current_url}{sep}Page={current_page + 1}"
+            # Only try if we haven't visited page > 1 already and this is page 1
+            if current_page == 1 or "Page=" in current_url:
+                logger.info(f"URL 기반 페이지네이션: Page={current_page + 1}")
+                driver.get(next_url)
+                time.sleep(2)
+                return True
     except Exception:
         pass
 
@@ -813,6 +906,7 @@ def _crawl_section_sync(
 ) -> list[ArticleInfo]:
     """Crawl articles from the currently navigated section with pagination."""
     all_articles = []
+    seen_ids = set()
     page_num = 1
     max_pages = 20
 
@@ -826,6 +920,13 @@ def _crawl_section_sync(
                 if on_progress:
                     on_progress(f"⚠ {category_label}: {diag}")
             break
+
+        # Detect duplicate pages (pagination didn't change content)
+        new_ids = {a.id for a in articles}
+        if new_ids.issubset(seen_ids):
+            logger.info(f"중복 페이지 감지 — 페이지네이션 중단 | {category_label} 페이지 {page_num}")
+            break
+        seen_ids.update(new_ids)
 
         # Filter by date window
         found_old = False
