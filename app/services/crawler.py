@@ -844,33 +844,66 @@ def _fetch_article_dates(driver, articles: list[ArticleInfo], on_progress=None) 
     # Save current URL to return later
     original_url = driver.current_url
 
-    # Use JavaScript to open article pages in background and extract dates
-    # This is faster than navigating for each article
+    # Use JavaScript to extract date+time from article detail pages
+    # TheBell detail pages typically have date info in various structures
     date_script = """
-    var el = document.querySelector(
-        '.articleView .article_info .date, ' +
-        '.articleView .article_info .datetime, ' +
-        '.view_top .date, .view_top .datetime, ' +
-        '.news_date, .article_date, ' +
-        '.view_header .date, .view_header span.time, ' +
-        'span.writeDate, .regdate, ' +
-        '.articleHeader .date, .articleHeader time, ' +
-        '.article_head .date, .article_head time, ' +
-        '.view_article .date, .view_cont .date'
-    );
-    if (el) return el.textContent.trim();
+    // Strategy 1: Look for elements with common date-related classes
+    var dateSelectors = [
+        '.articleView .article_info .date',
+        '.articleView .article_info .datetime',
+        '.view_top .date', '.view_top .datetime',
+        '.news_date', '.article_date',
+        '.view_header .date', '.view_header span.time',
+        'span.writeDate', '.regdate',
+        '.articleHeader .date', '.articleHeader time',
+        '.article_head .date', '.article_head time',
+        '.view_article .date', '.view_cont .date',
+        '.article_info', '.news_info', '.view_info',
+        '.article_header .info', '.news_header .info'
+    ];
+    for (var i = 0; i < dateSelectors.length; i++) {
+        var el = document.querySelector(dateSelectors[i]);
+        if (el) {
+            var t = el.textContent.trim();
+            // Check if text contains a full datetime pattern (date + time)
+            var fullMatch = t.match(/(\\d{4}[.\\-\\/]\\d{1,2}[.\\-\\/]\\d{1,2}\\s+\\d{1,2}:\\d{2})/);
+            if (fullMatch) return fullMatch[1];
+        }
+    }
 
-    // Fallback: search for any element containing a date pattern
-    var allSpans = document.querySelectorAll('span, em, time, div.date, p.date');
-    var datePattern = /\\d{4}[.\\-/]\\d{1,2}[.\\-/]\\d{1,2}/;
-    for (var i = 0; i < allSpans.length; i++) {
-        var t = allSpans[i].textContent.trim();
-        if (datePattern.test(t) && t.length < 30) return t;
+    // Strategy 2: Search the entire page for datetime patterns (date + time)
+    var body = document.body ? document.body.innerText : '';
+    var fullDateTimeMatch = body.match(/(\\d{4}[.\\-\\/]\\d{1,2}[.\\-\\/]\\d{1,2}\\s+\\d{1,2}:\\d{2})/);
+    if (fullDateTimeMatch) return fullDateTimeMatch[1];
+
+    // Strategy 3: Look for date and time in separate adjacent elements
+    var allEls = document.querySelectorAll('span, em, time, div, p, td');
+    var datePattern = /\\d{4}[.\\-\\/]\\d{1,2}[.\\-\\/]\\d{1,2}/;
+    var timePattern = /\\d{1,2}:\\d{2}/;
+    for (var i = 0; i < allEls.length; i++) {
+        var t = allEls[i].textContent.trim();
+        if (datePattern.test(t) && t.length < 30) {
+            // Check if this element also has time
+            var dtMatch = t.match(/(\\d{4}[.\\-\\/]\\d{1,2}[.\\-\\/]\\d{1,2})\\s*(\\d{1,2}:\\d{2})?/);
+            if (dtMatch) {
+                if (dtMatch[2]) return dtMatch[1] + ' ' + dtMatch[2];
+                // Check next sibling or parent's children for time
+                var nextEl = allEls[i].nextElementSibling;
+                if (nextEl) {
+                    var nt = nextEl.textContent.trim();
+                    var tm = nt.match(/(\\d{1,2}:\\d{2})/);
+                    if (tm) return dtMatch[1] + ' ' + tm[1];
+                }
+                // Return date only as last resort
+                return dtMatch[1];
+            }
+        }
     }
     return '';
     """
 
     fetched = 0
+    no_time_count = 0
     for a in undated:
         try:
             driver.get(a.url)
@@ -881,9 +914,35 @@ def _fetch_article_dates(driver, articles: list[ArticleInfo], on_progress=None) 
                 if parsed:
                     a.published_at = parsed
                     fetched += 1
+                    if not (parsed.hour or parsed.minute):
+                        no_time_count += 1
+                        logger.debug(f"날짜만 추출(시간 없음): '{date_text}' → {parsed} | {a.title[:40]}")
+                else:
+                    logger.debug(f"날짜 파싱 실패: '{date_text}' | {a.title[:40]}")
+            else:
+                # Last resort: search page source HTML for datetime
+                try:
+                    page_src = driver.page_source
+                    # Look for full datetime in HTML (often in meta tags or hidden elements)
+                    import re as _re
+                    src_match = _re.search(
+                        r'(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s+\d{1,2}:\d{2})', page_src
+                    )
+                    if src_match:
+                        parsed = _parse_datetime(src_match.group(1))
+                        if parsed:
+                            a.published_at = parsed
+                            fetched += 1
+                            logger.debug(f"HTML 소스에서 날짜 추출: '{src_match.group(1)}' | {a.title[:40]}")
+                except Exception:
+                    pass
+                if not a.published_at:
+                    logger.debug(f"날짜 요소 없음 | {a.title[:40]} | url={a.url}")
         except Exception as e:
             logger.debug(f"날짜 추출 실패: {a.title[:30]} | {e}")
             continue
+
+    logger.info(f"날짜 추출 완료: {fetched}/{len(undated)}개 성공 (시간 미포함: {no_time_count}개)")
 
     logger.info(f"날짜 추출 완료: {fetched}/{len(undated)}개 성공")
     if on_progress:
