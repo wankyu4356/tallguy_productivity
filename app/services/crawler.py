@@ -8,7 +8,13 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    ElementNotInteractableException,
+)
 
 from app.config import settings
 from app.models.schemas import ArticleInfo
@@ -19,6 +25,7 @@ logger = get_logger(__name__)
 
 THEBELL_BASE = "https://www.thebell.co.kr"
 THEBELL_LOGIN_URL = f"{THEBELL_BASE}/LoginCert/Login.asp"
+THEBELL_LOGIN_PROC_URL = f"{THEBELL_BASE}/LoginCert/LoginProc.asp"
 
 # Category mapping: (menu, svccode, submenucode) for each target section
 # These correspond to TheBell's URL parameters
@@ -50,13 +57,21 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
 
 LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
 
-# Multiple login URL candidates (site structure changes over time)
+# Login URL candidates ordered by likelihood (based on MHTML analysis)
 _LOGIN_URLS = [
-    f"{THEBELL_BASE}/front/member/login.asp",
     f"{THEBELL_BASE}/LoginCert/Login.asp",
+    f"{THEBELL_BASE}/front/member/login.asp",
     f"{THEBELL_BASE}/free/login/loginForm.asp",
-    f"{THEBELL_BASE}/member/login",
-    f"{THEBELL_BASE}/login",
+]
+
+# Cookie names that indicate a successful login (ASP-based site)
+_SESSION_COOKIE_PATTERNS = [
+    "aspsessionid",
+    "sess",
+    "member",
+    "auth",
+    "loginck",
+    "user",
 ]
 
 
@@ -65,17 +80,14 @@ def _is_error_page(driver) -> bool:
     page_text = driver.page_source[:3000].lower()
     current_url = driver.current_url.lower()
 
-    # Check page title for error indicators
     title = driver.title.lower() if driver.title else ""
 
     error_indicators = [
-        # Korean 404 messages
         "찾을 수 없습니다",
         "찾을 수가 없습니다",
         "페이지를 찾을 수",
         "존재하지 않는 페이지",
         "요청하신 페이지",
-        # English 404 messages
         "404",
         "not found",
         "page not found",
@@ -86,7 +98,6 @@ def _is_error_page(driver) -> bool:
         if indicator in page_text or indicator in title or indicator in current_url:
             return True
 
-    # Check if the page body is essentially empty (broken page)
     try:
         body = driver.find_element(By.TAG_NAME, "body")
         body_text = body.text.strip()
@@ -98,52 +109,249 @@ def _is_error_page(driver) -> bool:
     return False
 
 
-def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
-    """Open TheBell and wait for user to log in manually."""
-    # Try login URLs until one doesn't 404
-    login_loaded = False
+def _check_logged_in(driver) -> bool:
+    """Check if the user is currently logged in by cookies or page indicators."""
+    cookies = driver.get_cookies()
+    cookie_names = [c["name"].lower() for c in cookies]
+
+    # Check for session cookies
+    for pattern in _SESSION_COOKIE_PATTERNS:
+        if any(pattern in name for name in cookie_names):
+            logger.info(f"세션 쿠키로 로그인 감지! cookies: {[c['name'] for c in cookies]}")
+            return True
+
+    # Check for logout button / logged-in UI elements on the page
+    try:
+        page_source = driver.page_source
+        if "logout" in page_source.lower() or "로그아웃" in page_source:
+            logger.info("페이지에서 로그아웃 버튼 감지 — 로그인 상태")
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _find_login_form_and_fill(driver, user_id: str, password: str) -> bool:
+    """Find login form fields, fill them, and submit.
+
+    Returns True if the form was found and submitted successfully.
+    Based on MHTML analysis:
+    - Main form: id="login_form", fields: input#id, input#pw
+    - Modal form: id="modal_login_form", fields: input#id, input#pw
+    - Submit button: a#btn1.btn_login (JS event, not form submit)
+    """
+    # Selectors to try for the ID field (ordered by specificity)
+    id_selectors = [
+        "form#login_form input#id",
+        "form#login_form input[name='id']",
+        "input#id[type='text']",
+        "input[name='id'][type='text']",
+        # Modal form fallback
+        "form#modal_login_form input#id",
+        "form#modal_login_form input[name='id']",
+    ]
+
+    pw_selectors = [
+        "form#login_form input#pw",
+        "form#login_form input[name='pw']",
+        "input#pw[type='password']",
+        "input[name='pw'][type='password']",
+        "form#modal_login_form input#pw",
+        "form#modal_login_form input[name='pw']",
+    ]
+
+    submit_selectors = [
+        "a#btn1",
+        "a.btn_login",
+        "form#login_form a.btn_login",
+        "button[type='submit']",
+        "input[type='submit']",
+    ]
+
+    id_field = None
+    pw_field = None
+
+    # Find ID field
+    for sel in id_selectors:
+        try:
+            el = driver.find_element(By.CSS_SELECTOR, sel)
+            if el.is_displayed():
+                id_field = el
+                logger.debug(f"ID 필드 발견: {sel}")
+                break
+        except (NoSuchElementException, ElementNotInteractableException):
+            continue
+
+    # Find PW field
+    for sel in pw_selectors:
+        try:
+            el = driver.find_element(By.CSS_SELECTOR, sel)
+            if el.is_displayed():
+                pw_field = el
+                logger.debug(f"PW 필드 발견: {sel}")
+                break
+        except (NoSuchElementException, ElementNotInteractableException):
+            continue
+
+    if not id_field or not pw_field:
+        logger.warning("로그인 폼 필드를 찾을 수 없습니다.")
+        return False
+
+    try:
+        # Clear and fill ID
+        id_field.clear()
+        id_field.send_keys(user_id)
+        time.sleep(0.3)
+
+        # Clear and fill PW
+        pw_field.clear()
+        pw_field.send_keys(password)
+        time.sleep(0.3)
+
+        # Try to click the login button
+        for sel in submit_selectors:
+            try:
+                btn = driver.find_element(By.CSS_SELECTOR, sel)
+                if btn.is_displayed():
+                    btn.click()
+                    logger.info(f"로그인 버튼 클릭: {sel}")
+                    return True
+            except (NoSuchElementException, ElementNotInteractableException):
+                continue
+
+        # Fallback: submit the form via JS
+        logger.info("로그인 버튼을 못 찾아 JS로 폼 제출 시도")
+        try:
+            driver.execute_script(
+                "document.getElementById('login_form').submit();"
+            )
+            return True
+        except Exception:
+            pass
+
+        # Last resort: press Enter in the password field
+        from selenium.webdriver.common.keys import Keys
+        pw_field.send_keys(Keys.RETURN)
+        logger.info("PW 필드에서 Enter 키로 로그인 시도")
+        return True
+
+    except Exception as e:
+        logger.warning(f"로그인 폼 입력 중 오류: {e}")
+        return False
+
+
+def _load_login_page(driver) -> bool:
+    """Try login URLs until one loads successfully. Returns True if loaded."""
     for url in _LOGIN_URLS:
-        logger.debug(f"Trying login URL: {url}")
-        driver.get(url)
+        logger.debug(f"로그인 URL 시도: {url}")
+        try:
+            driver.get(url)
+        except TimeoutException:
+            logger.debug(f"로그인 URL 타임아웃: {url}")
+            continue
+
         time.sleep(3)
 
-        # Re-check after a longer delay to catch JS redirects
         if _is_error_page(driver):
-            logger.debug(f"Login URL error (first check): {url}")
-            continue
+            logger.debug(f"로그인 URL 에러: {url}")
+            time.sleep(2)
+            if _is_error_page(driver):
+                continue
 
-        # Wait a bit more for possible delayed redirects
-        time.sleep(2)
-        if _is_error_page(driver):
-            logger.debug(f"Login URL error (after redirect): {url}")
-            continue
+        logger.info(f"로그인 페이지 로드 성공: {url}")
+        return True
 
-        login_loaded = True
-        logger.info(f"Login page loaded: {url}")
-        break
+    # Fallback: open main page
+    logger.warning("모든 로그인 URL 실패. 메인 페이지를 엽니다.")
+    driver.get(THEBELL_BASE)
+    time.sleep(2)
+    return False
 
-    if not login_loaded:
-        # Fallback: open the main page, user can find login themselves
-        logger.warning("모든 로그인 URL이 404. 메인 페이지를 엽니다.")
-        driver.get(THEBELL_BASE)
-        time.sleep(2)
+
+def _auto_login_sync(driver) -> bool:
+    """Attempt automatic login using configured credentials.
+
+    Strategy:
+    1. Load login page
+    2. Fill in ID/PW from config
+    3. Click login button
+    4. Verify login success via cookies / page state
+    """
+    user_id = settings.THEBELL_ID
+    password = settings.THEBELL_PW
+
+    if not user_id or not password:
+        logger.info("자동 로그인 자격증명 미설정 — 수동 로그인으로 전환")
+        return False
+
+    _load_login_page(driver)
+
+    # Wait for login form to be ready
+    time.sleep(2)
+
+    # Attempt to fill and submit login form
+    form_submitted = _find_login_form_and_fill(driver, user_id, password)
+    if not form_submitted:
+        logger.warning("자동 로그인 폼 제출 실패 — 수동 로그인으로 전환")
+        return False
+
+    # Wait for login to process
+    time.sleep(3)
+
+    # Check for security module blocking (보안 프로그램 설치 요구)
+    try:
+        page_source = driver.page_source
+        security_indicators = ["보안프로그램", "보안 프로그램", "install.asp", "CERTTEXT"]
+        if any(ind in page_source for ind in security_indicators):
+            logger.warning("보안 프로그램 설치 요구 감지 — 수동 로그인으로 전환")
+            return False
+    except Exception:
+        pass
+
+    # Check for login error messages
+    try:
+        page_source = driver.page_source
+        error_indicators = ["아이디 또는 비밀번호", "로그인 실패", "입력해 주세요", "확인해 주세요"]
+        if any(ind in page_source for ind in error_indicators):
+            logger.warning("로그인 실패 메시지 감지 — 자격증명을 확인하세요")
+            return False
+    except Exception:
+        pass
+
+    # Verify login success
+    if _check_logged_in(driver):
+        logger.info("자동 로그인 성공!")
+        return True
+
+    # Check if URL moved away from login page
+    current_url = driver.current_url.lower()
+    if not any(kw in current_url for kw in ["login", "logincert"]):
+        if not _is_error_page(driver):
+            logger.info(f"자동 로그인 성공 (URL 이동): {driver.current_url}")
+            return True
+
+    logger.warning("자동 로그인 결과 불확실 — 수동 로그인으로 전환")
+    return False
+
+
+def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
+    """Open TheBell and wait for user to log in manually."""
+    # Load login page if not already on one
+    current_url = driver.current_url.lower()
+    if not any(kw in current_url for kw in ["thebell", "login"]):
+        _load_login_page(driver)
 
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
     start = time.time()
     while time.time() - start < timeout:
         try:
-            current_url = driver.current_url
-
-            # Check for session cookies (most reliable indicator)
-            cookies = driver.get_cookies()
-            cookie_names = [c["name"] for c in cookies]
-            if any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
-                    for c in cookie_names):
-                logger.info(f"세션 쿠키로 로그인 감지! cookies: {cookie_names}")
+            if _check_logged_in(driver):
                 return True
 
-            # URL left the login page and is not a 404/error page
+            # URL left the login page
+            current_url = driver.current_url
             is_login_page = any(
                 kw in current_url.lower()
                 for kw in ["login", "logincert", "loginform"]
@@ -155,17 +363,36 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
                 return True
 
         except Exception:
-            pass  # browser may be navigating
+            pass
         time.sleep(1)
 
     logger.error("로그인 타임아웃 (5분)")
     return False
 
 
-async def login(context: SeleniumContext) -> bool:
-    """Open TheBell login page for manual login. Returns True on success."""
+def _login_sync(driver) -> bool:
+    """Combined login: try auto-login first, then fall back to manual.
+
+    Flow:
+    1. Try auto-login with configured THEBELL_ID/PW
+    2. If auto-login fails, open browser for manual login
+    """
+    # Step 1: Try auto-login
     try:
-        return await asyncio.to_thread(_manual_login_sync, context.driver)
+        if _auto_login_sync(driver):
+            return True
+    except Exception as e:
+        logger.warning(f"자동 로그인 중 예외 발생: {e}")
+
+    # Step 2: Fall back to manual login
+    logger.info("수동 로그인 모드로 전환합니다.")
+    return _manual_login_sync(driver)
+
+
+async def login(context: SeleniumContext) -> bool:
+    """Login to TheBell. Tries auto-login first, then manual. Returns True on success."""
+    try:
+        return await asyncio.to_thread(_login_sync, context.driver)
     except Exception as e:
         logger.error(f"Login error: {e}", exc_info=True)
         return False
