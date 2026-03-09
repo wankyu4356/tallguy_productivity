@@ -32,9 +32,9 @@ Commands:
   2. copy .env.example .env        (Windows)
      cp .env.example .env          (Mac/Linux)
   3. .env 파일 열어서 값 입력:
-     - THEBELL_ID=더벨_아이디
-     - THEBELL_PW=더벨_비밀번호
-     - ANTHROPIC_API_KEY=sk-ant-...
+     - ANTHROPIC_API_KEY=sk-ant-...  (필수)
+     - THEBELL_ID=더벨_아이디        (선택, 자동 로그인용)
+     - THEBELL_PW=더벨_비밀번호      (선택, 자동 로그인용)
 
 -------------------------------------------------------
 빠른 설치:
@@ -56,7 +56,7 @@ Commands:
   [2] 필수 패키지    requirements.txt의 모든 패키지
   [3] Timezone       Asia/Seoul (Windows: tzdata 필요)
   [4] .env 파일      프로젝트 루트에 존재 여부
-  [5] 환경변수       THEBELL_ID, THEBELL_PW, ANTHROPIC_API_KEY
+  [5] 환경변수       ANTHROPIC_API_KEY (필수), THEBELL_ID/PW (선택, 없으면 수동 로그인)
   [6] Selenium       Chrome 자동 관리 (Selenium Manager)
 
 =======================================================
@@ -84,7 +84,8 @@ PACKAGE_IMPORT_MAP = {
     "tzdata": "tzdata",
 }
 
-REQUIRED_ENV_VARS = ["THEBELL_ID", "THEBELL_PW", "ANTHROPIC_API_KEY"]
+REQUIRED_ENV_VARS = ["ANTHROPIC_API_KEY"]
+OPTIONAL_ENV_VARS = ["THEBELL_ID", "THEBELL_PW"]
 
 
 def print_result(name, passed, fix_hint=None):
@@ -162,7 +163,16 @@ def check_env_vars():
             False,
             ".env 파일에 값을 입력하세요",
         )
-    return print_result(f"환경변수 ({len(REQUIRED_ENV_VARS)}개 모두 설정됨)", True)
+    # 선택 변수 안내 (실패가 아닌 정보)
+    optional_missing = [v for v in OPTIONAL_ENV_VARS if not os.getenv(v)]
+    if optional_missing:
+        print_result(
+            f"환경변수 ({len(REQUIRED_ENV_VARS)}개 필수 설정됨, 수동 로그인 모드)",
+            True,
+        )
+        print(f"         ℹ️  {', '.join(optional_missing)} 미설정 → 브라우저에서 직접 로그인")
+        return True
+    return print_result(f"환경변수 (모두 설정됨, 자동 로그인 모드)", True)
 
 
 def check_selenium():
