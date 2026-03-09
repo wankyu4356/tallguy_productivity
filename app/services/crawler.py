@@ -50,27 +50,66 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
 
 LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
 
+# Multiple login URL candidates (site structure changes over time)
+_LOGIN_URLS = [
+    f"{THEBELL_BASE}/LoginCert/Login.asp",
+    f"{THEBELL_BASE}/free/login/loginForm.asp",
+    f"{THEBELL_BASE}/member/login",
+]
+
 
 def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
-    """Open TheBell login page and wait for user to log in manually."""
-    driver.get(THEBELL_LOGIN_URL)
+    """Open TheBell and wait for user to log in manually."""
+    # Try login URLs until one doesn't 404
+    login_loaded = False
+    for url in _LOGIN_URLS:
+        driver.get(url)
+        time.sleep(2)
+        page_text = driver.page_source[:2000].lower()
+        # Check if page is a 404 error page
+        if "찾을 수 없습니다" in page_text or "찾을 수가 없습니다" in page_text:
+            logger.debug(f"Login URL 404: {url}")
+            continue
+        login_loaded = True
+        logger.info(f"Login page loaded: {url}")
+        break
+
+    if not login_loaded:
+        # Fallback: open the main page, user can find login themselves
+        logger.warning("모든 로그인 URL이 404. 메인 페이지를 엽니다.")
+        driver.get(THEBELL_BASE)
+        time.sleep(2)
+
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
     start = time.time()
     while time.time() - start < timeout:
         try:
             current_url = driver.current_url
-            # Left the login page → success
-            if "Login.asp" not in current_url and "login" not in current_url.lower():
-                logger.info(f"로그인 감지! URL: {current_url}")
-                return True
-            # Session cookie appeared → success
+
+            # Check for session cookies (most reliable indicator)
             cookies = driver.get_cookies()
             cookie_names = [c["name"] for c in cookies]
             if any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
                     for c in cookie_names):
                 logger.info(f"세션 쿠키로 로그인 감지! cookies: {cookie_names}")
                 return True
+
+            # URL left the login page and is not a 404/error page
+            is_login_page = any(
+                kw in current_url.lower()
+                for kw in ["login", "logincert", "loginform"]
+            )
+            is_error_page = "error" in current_url.lower()
+            is_main_only = current_url.rstrip("/") == THEBELL_BASE.rstrip("/")
+
+            if not is_login_page and not is_error_page and not is_main_only:
+                # Verify it's not a 404 page by checking content
+                page_text = driver.page_source[:1000].lower()
+                if "찾을 수 없습니다" not in page_text and "찾을 수가 없습니다" not in page_text:
+                    logger.info(f"로그인 감지! URL: {current_url}")
+                    return True
+
         except Exception:
             pass  # browser may be navigating
         time.sleep(1)
