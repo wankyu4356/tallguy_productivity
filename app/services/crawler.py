@@ -430,20 +430,37 @@ async def login(context: SeleniumContext) -> bool:
 def _parse_datetime(date_str: str) -> datetime | None:
     """Parse TheBell date string into datetime."""
     date_str = date_str.strip()
+    now = datetime.now(KST)
+
     patterns = [
-        r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\s*(\d{1,2}):(\d{2})",
-        r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})",
+        # Full: 2026.03.09 09:27 or 2026-03-09 09:27
+        (r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\s+(\d{1,2}):(\d{2})", "full_datetime"),
+        # Date only: 2026.03.09
+        (r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", "date_only"),
+        # Short: 03-09 09:27 or 03.09 09:27 (no year)
+        (r"(\d{1,2})[.\-/](\d{1,2})\s+(\d{1,2}):(\d{2})", "short_datetime"),
+        # Short date only: 03-09 or 03.09
+        (r"(\d{1,2})[.\-/](\d{1,2})$", "short_date"),
     ]
-    for pat in patterns:
+    for pat, kind in patterns:
         m = re.match(pat, date_str)
         if m:
             groups = m.groups()
-            if len(groups) >= 5:
-                return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
-                                int(groups[3]), int(groups[4]), tzinfo=KST)
-            else:
-                return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
-                                tzinfo=KST)
+            try:
+                if kind == "full_datetime":
+                    return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
+                                    int(groups[3]), int(groups[4]), tzinfo=KST)
+                elif kind == "date_only":
+                    return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
+                                    tzinfo=KST)
+                elif kind == "short_datetime":
+                    return datetime(now.year, int(groups[0]), int(groups[1]),
+                                    int(groups[2]), int(groups[3]), tzinfo=KST)
+                elif kind == "short_date":
+                    return datetime(now.year, int(groups[0]), int(groups[1]),
+                                    tzinfo=KST)
+            except (ValueError, OverflowError):
+                continue
     return None
 
 
@@ -654,26 +671,29 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                     if not title or len(title) < 5:
                         continue
 
-                    # --- Extract date from parent/sibling ---
+                    # --- Extract date from parent/sibling/ancestor ---
                     date_str = ""
                     published_at = None
+                    date_css = (
+                        ".date, .time, .datetime, span.txt_time, .news_date, "
+                        ".txt_date, .article_date, .news_time, .regdate, "
+                        "em.date, span.date, dd.date"
+                    )
                     try:
-                        parent = el.find_element(By.XPATH, "./..")
-                        # Search parent and its children for date elements
-                        date_els = parent.find_elements(
-                            By.CSS_SELECTOR,
-                            ".date, .time, .datetime, span.txt_time, .news_date, .txt_date"
-                        )
-                        if not date_els:
-                            # Try grandparent (e.g., li > a + span.date)
-                            grandparent = parent.find_element(By.XPATH, "./..")
-                            date_els = grandparent.find_elements(
-                                By.CSS_SELECTOR,
-                                ".date, .time, .datetime, span.txt_time, .news_date, .txt_date"
-                            )
-                        if date_els:
-                            date_str = date_els[0].text.strip()
-                            published_at = _parse_datetime(date_str) if date_str else None
+                        # Search up to 3 ancestor levels
+                        ancestor = el
+                        for _ in range(3):
+                            ancestor = ancestor.find_element(By.XPATH, "./..")
+                            date_els = ancestor.find_elements(By.CSS_SELECTOR, date_css)
+                            for d_el in date_els:
+                                dt = d_el.text.strip()
+                                parsed = _parse_datetime(dt) if dt else None
+                                if parsed:
+                                    date_str = dt
+                                    published_at = parsed
+                                    break
+                            if published_at:
+                                break
                     except Exception:
                         pass
 
@@ -716,6 +736,72 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
 
     logger.info(f"페이지 기사 수집: {len(articles)}개 | url={driver.current_url}")
     return articles
+
+
+def _fetch_article_dates(driver, articles: list[ArticleInfo], on_progress=None) -> None:
+    """Fetch publish dates for articles missing published_at by visiting detail pages."""
+    undated = [a for a in articles if not a.published_at]
+    if not undated:
+        return
+
+    logger.info(f"날짜 미상 기사 {len(undated)}개 — 상세 페이지에서 날짜 추출 시도")
+    if on_progress:
+        on_progress(f"날짜 미상 기사 {len(undated)}개 날짜 추출 중...")
+
+    # Save current URL to return later
+    original_url = driver.current_url
+
+    # Use JavaScript to open article pages in background and extract dates
+    # This is faster than navigating for each article
+    date_script = """
+    var el = document.querySelector(
+        '.articleView .article_info .date, ' +
+        '.articleView .article_info .datetime, ' +
+        '.view_top .date, .view_top .datetime, ' +
+        '.news_date, .article_date, ' +
+        '.view_header .date, .view_header span.time, ' +
+        'span.writeDate, .regdate, ' +
+        '.articleHeader .date, .articleHeader time, ' +
+        '.article_head .date, .article_head time, ' +
+        '.view_article .date, .view_cont .date'
+    );
+    if (el) return el.textContent.trim();
+
+    // Fallback: search for any element containing a date pattern
+    var allSpans = document.querySelectorAll('span, em, time, div.date, p.date');
+    var datePattern = /\\d{4}[.\\-/]\\d{1,2}[.\\-/]\\d{1,2}/;
+    for (var i = 0; i < allSpans.length; i++) {
+        var t = allSpans[i].textContent.trim();
+        if (datePattern.test(t) && t.length < 30) return t;
+    }
+    return '';
+    """
+
+    fetched = 0
+    for a in undated:
+        try:
+            driver.get(a.url)
+            time.sleep(0.5)
+            date_text = driver.execute_script(date_script)
+            if date_text:
+                parsed = _parse_datetime(date_text)
+                if parsed:
+                    a.published_at = parsed
+                    fetched += 1
+        except Exception as e:
+            logger.debug(f"날짜 추출 실패: {a.title[:30]} | {e}")
+            continue
+
+    logger.info(f"날짜 추출 완료: {fetched}/{len(undated)}개 성공")
+    if on_progress:
+        on_progress(f"날짜 추출 완료: {fetched}/{len(undated)}개")
+
+    # Return to original page
+    try:
+        driver.get(original_url)
+        time.sleep(1)
+    except Exception:
+        pass
 
 
 def _crawl_section_sync(
@@ -805,6 +891,9 @@ async def crawl_all_categories(
             if on_progress:
                 on_progress(f"⚠ {msg}")
         else:
+            # Fetch dates for undated articles from detail pages
+            _fetch_article_dates(driver, all_articles, on_progress)
+
             if on_progress:
                 on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
 
