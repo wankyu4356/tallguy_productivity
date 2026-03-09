@@ -38,22 +38,22 @@
                         <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
                                {% if rec and rec.recommended %}checked{% endif %}
                                onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">
-                                {{ a.title }}
+                        <div class="article-content-wrap">
+                            <div class="article-header">
+                                <span class="article-title">{{ a.title }}</span>
                                 {% if rec and rec.recommended %}
                                 <span class="recommendation-badge">AI 추천</span>
                                 {% endif %}
+                                <span class="article-meta-inline">
+                                    <span class="category-tag">{{ a.subcategory or a.category }}</span>
+                                    {% if a.published_at %}
+                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
+                                    {% endif %}
+                                </span>
                             </div>
                             {% if rec and rec.reason %}
-                            <div class="article-summary">{{ rec.reason }}</div>
+                            <div class="article-body">{{ rec.reason }}</div>
                             {% endif %}
-                            <div class="article-meta">
-                                <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
-                            </div>
                         </div>
                     </li>
                     {% endfor %}
@@ -75,17 +75,19 @@
                     <li class="article-item">
                         <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
                                onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">{{ a.title }}</div>
-                            {% if a.summary %}
-                            <div class="article-summary">{{ a.summary }}</div>
-                            {% endif %}
-                            <div class="article-meta">
-                                <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
+                        <div class="article-content-wrap">
+                            <div class="article-header">
+                                <span class="article-title">{{ a.title }}</span>
+                                <span class="article-meta-inline">
+                                    <span class="category-tag">{{ a.subcategory or a.category }}</span>
+                                    {% if a.published_at %}
+                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
+                                    {% endif %}
+                                </span>
                             </div>
+                            {% if a.summary %}
+                            <div class="article-body">{{ a.summary }}</div>
+                            {% endif %}
                         </div>
                     </li>
                     {% endfor %}

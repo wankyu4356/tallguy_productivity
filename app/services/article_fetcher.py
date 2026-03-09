@@ -38,9 +38,120 @@ def sanitize_filename(title: str) -> str:
     return name
 
 
+def _navigate_to_print_page(driver, article_url: str) -> bool:
+    """Try to navigate to the print-friendly version of the article.
+
+    Strategy:
+    1. Click print button on the page (handles JS popups)
+    2. Try URL manipulation (newsview → NewsPrint, ArticleView → ArticlePrint)
+    3. Return False if no print page found
+    """
+    original_window = driver.current_window_handle
+
+    # Strategy 1: Find and click print button (handles onclick popups)
+    print_selectors = [
+        (By.CSS_SELECTOR, '.btn_print'),
+        (By.CSS_SELECTOR, '#btn_print'),
+        (By.CSS_SELECTOR, 'a.print'),
+        (By.CSS_SELECTOR, 'a[href*="print" i]'),
+        (By.CSS_SELECTOR, 'a[onclick*="print" i]'),
+        (By.CSS_SELECTOR, 'a[onclick*="Print" i]'),
+        (By.CSS_SELECTOR, 'button[onclick*="print" i]'),
+        (By.XPATH, '//a[contains(text(),"프린트")]'),
+        (By.XPATH, '//a[contains(text(),"인쇄")]'),
+        (By.XPATH, '//button[contains(text(),"프린트")]'),
+        (By.XPATH, '//img[@alt="프린트"]/..'),
+        (By.XPATH, '//img[contains(@src,"print")]/..'),
+    ]
+
+    for by, sel in print_selectors:
+        try:
+            els = driver.find_elements(by, sel)
+            if not els:
+                continue
+
+            el = els[0]
+            el.click()
+            time.sleep(1.5)
+
+            # Check if a new window/tab was opened (JS popup)
+            all_windows = driver.window_handles
+            if len(all_windows) > 1:
+                new_window = [w for w in all_windows if w != original_window][0]
+                driver.switch_to.window(new_window)
+                time.sleep(1)
+                logger.info(f"프린트 팝업 감지 | url={driver.current_url}")
+                return True
+
+            # Check if current page changed to a print page
+            if "print" in driver.current_url.lower():
+                logger.info(f"프린트 페이지 이동 | url={driver.current_url}")
+                return True
+
+        except Exception:
+            continue
+
+    # Strategy 2: URL manipulation for TheBell
+    url_replacements = [
+        ("newsview.asp", "NewsPrint.asp"),
+        ("NewsView.asp", "NewsPrint.asp"),
+        ("newsView.asp", "NewsPrint.asp"),
+        ("ArticleView.asp", "ArticlePrint.asp"),
+    ]
+    for old, new in url_replacements:
+        if old.lower() in article_url.lower():
+            print_url = article_url.replace(old, new)
+            # case-insensitive replacement fallback
+            if print_url == article_url:
+                import re as _re
+                print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
+            try:
+                driver.get(print_url)
+                time.sleep(1.5)
+                if not _is_error_page_simple(driver):
+                    logger.info(f"프린트 URL 직접 접근 | url={print_url}")
+                    return True
+                # Error page — go back to article
+                driver.get(article_url)
+                time.sleep(1)
+            except Exception:
+                driver.get(article_url)
+                time.sleep(1)
+            break
+
+    return False
+
+
+def _is_error_page_simple(driver) -> bool:
+    """Quick check if the current page is an error page."""
+    try:
+        title = driver.title.lower()
+        if any(kw in title for kw in ["error", "404", "오류", "not found"]):
+            return True
+        body = driver.find_elements(By.CSS_SELECTOR, "body")
+        if body and len(body[0].text.strip()) < 50:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _close_extra_windows(driver, keep_window: str):
+    """Close all windows except the one to keep."""
+    for w in driver.window_handles:
+        if w != keep_window:
+            try:
+                driver.switch_to.window(w)
+                driver.close()
+            except Exception:
+                pass
+    driver.switch_to.window(keep_window)
+
+
 def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> ArticleWithContent:
     """Fetch a single article: extract content and save as PDF (synchronous)."""
     result = ArticleWithContent(info=article)
+    original_window = driver.current_window_handle
 
     try:
         driver.set_page_load_timeout(settings.CRAWL_TIMEOUT_MS / 1000)
@@ -64,51 +175,19 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
                     break
 
         if not content:
-            # Fallback: get all text from body
             body_els = driver.find_elements(By.CSS_SELECTOR, "body")
             if body_els:
                 content = body_els[0].text.strip()[:3000]
 
         result.content = content[:5000]
 
-        # Generate PDF
+        # Generate PDF — try print-friendly page first
         filename = sanitize_filename(article.title) + ".pdf"
         pdf_path = output_dir / filename
 
-        # Try to use print-friendly view if available
-        print_selectors_css = [
-            '.btn_print', '#btn_print', 'a[href*="print"]', 'a.print',
-        ]
-        print_selectors_xpath = [
-            '//a[contains(text(),"프린트")]', '//a[contains(text(),"인쇄")]',
-            '//button[contains(text(),"프린트")]',
-        ]
-
-        for sel in print_selectors_css:
-            try:
-                els = driver.find_elements(By.CSS_SELECTOR, sel)
-                if els:
-                    href = els[0].get_attribute("href")
-                    if href and "print" in href.lower():
-                        print_url = href if href.startswith("http") else f"https://www.thebell.co.kr{href}"
-                        driver.get(print_url)
-                        time.sleep(1)
-                    break
-            except Exception:
-                continue
-
-        for sel in print_selectors_xpath:
-            try:
-                els = driver.find_elements(By.XPATH, sel)
-                if els:
-                    href = els[0].get_attribute("href")
-                    if href and "print" in href.lower():
-                        print_url = href if href.startswith("http") else f"https://www.thebell.co.kr{href}"
-                        driver.get(print_url)
-                        time.sleep(1)
-                    break
-            except Exception:
-                continue
+        used_print_page = _navigate_to_print_page(driver, article.url)
+        if used_print_page:
+            logger.info(f"프린트 페이지에서 PDF 생성: {article.title[:40]}")
 
         # Generate PDF using Chrome DevTools Protocol
         pdf_result = driver.execute_cdp_cmd("Page.printToPDF", PDF_PARAMS)
@@ -119,10 +198,15 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         result.pdf_path = str(pdf_path)
         logger.info(f"Saved PDF: {filename}")
 
+        # Clean up: close popup windows and return to original window
+        _close_extra_windows(driver, original_window)
+
     except TimeoutException:
         logger.error(f"Timeout fetching article: {article.title}")
+        _close_extra_windows(driver, original_window)
     except Exception as e:
         logger.error(f"Error fetching article '{article.title}': {e}", exc_info=True)
+        _close_extra_windows(driver, original_window)
 
     return result
 
