@@ -46,9 +46,7 @@
                                 {% endif %}
                                 <span class="article-meta-inline">
                                     <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                    {% if a.published_at %}
-                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                    {% endif %}
+                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') if a.published_at else '시간 미상' }}</span>
                                 </span>
                             </div>
                             {% if rec and rec.reason %}
@@ -80,9 +78,7 @@
                                 <span class="article-title">{{ a.title }}</span>
                                 <span class="article-meta-inline">
                                     <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                    {% if a.published_at %}
-                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                    {% endif %}
+                                    <span class="article-date">{{ a.published_at.strftime('%m-%d %H:%M') if a.published_at else '시간 미상' }}</span>
                                 </span>
                             </div>
                             {% if a.summary %}

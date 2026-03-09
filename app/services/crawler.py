@@ -600,9 +600,9 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
             for el in link_els:
                 try:
                     href = el.get_attribute("href") or ""
-                    title = el.text.strip()
+                    full_text = el.text.strip()
 
-                    if not title or len(title) < 5:
+                    if not full_text or len(full_text) < 5:
                         continue
                     if href in seen_urls:
                         continue
@@ -611,62 +611,93 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                     if not href.startswith("http"):
                         href = THEBELL_BASE + href if href.startswith("/") else f"{THEBELL_BASE}/{href}"
 
-                    # Try to get date from parent/sibling elements
+                    # --- Extract title (heading child) vs summary (body child) ---
+                    title = full_text
+                    summary = ""
+
+                    # Try to get title from a heading-like child inside <a>
+                    title_tags = ["strong", "b", "dt", "h3", "h4", "em.tit", "span.tit", "span.title"]
+                    for tag in title_tags:
+                        try:
+                            title_el = el.find_element(By.CSS_SELECTOR, tag)
+                            t = title_el.text.strip()
+                            if t and len(t) >= 5:
+                                title = t
+                                break
+                        except Exception:
+                            continue
+
+                    # Try to get summary from a body-like child inside <a>
+                    summary_tags = ["p", "dd", "span.summary", "span.desc", "span.txt"]
+                    for tag in summary_tags:
+                        try:
+                            summary_el = el.find_element(By.CSS_SELECTOR, tag)
+                            s = summary_el.text.strip()
+                            if s and s != title and len(s) >= 10:
+                                summary = s
+                                break
+                        except Exception:
+                            continue
+
+                    # If title still contains summary text, clean it
+                    if summary and title.startswith(summary):
+                        title = title[: len(title) - len(summary)].strip()
+                    elif summary and summary in title:
+                        title = title.replace(summary, "").strip()
+
+                    # If no child-level title found but full_text has summary baked in,
+                    # split: title is everything before the summary
+                    if not summary and title == full_text and len(full_text) > 80:
+                        # full_text may be "Title Summary..." — skip, keep as title only
+                        pass
+
+                    if not title or len(title) < 5:
+                        continue
+
+                    # --- Extract date from parent/sibling ---
                     date_str = ""
                     published_at = None
                     try:
                         parent = el.find_element(By.XPATH, "./..")
-                        grandparent = parent.find_element(By.XPATH, "./..")
-                        container = grandparent
-                        date_els = container.find_elements(
+                        # Search parent and its children for date elements
+                        date_els = parent.find_elements(
                             By.CSS_SELECTOR,
                             ".date, .time, .datetime, span.txt_time, .news_date, .txt_date"
                         )
+                        if not date_els:
+                            # Try grandparent (e.g., li > a + span.date)
+                            grandparent = parent.find_element(By.XPATH, "./..")
+                            date_els = grandparent.find_elements(
+                                By.CSS_SELECTOR,
+                                ".date, .time, .datetime, span.txt_time, .news_date, .txt_date"
+                            )
                         if date_els:
                             date_str = date_els[0].text.strip()
                             published_at = _parse_datetime(date_str) if date_str else None
                     except Exception:
                         pass
 
-                    # Try to get summary from surrounding elements
-                    summary = ""
-                    try:
-                        parent = el.find_element(By.XPATH, "./..")
-                        grandparent = parent.find_element(By.XPATH, "./..")
-
-                        summary_css = ".summary, .desc, .txt, .lead, dd, p"
-
-                        # Search grandparent first (covers dl>dt>a + dd structure)
-                        for search_el in [grandparent, parent]:
-                            summary_els = search_el.find_elements(
+                    # --- Extract summary from parent if not found inside <a> ---
+                    if not summary:
+                        try:
+                            parent = el.find_element(By.XPATH, "./..")
+                            summary_css = ".summary, .desc, .lead, p"
+                            summary_els = parent.find_elements(
                                 By.CSS_SELECTOR, summary_css
                             )
                             for s_el in summary_els:
+                                # Skip elements inside the <a> tag (already checked)
+                                try:
+                                    s_el.find_element(By.XPATH, f"ancestor::a")
+                                    continue  # inside an <a> tag, skip
+                                except Exception:
+                                    pass
                                 txt = s_el.text.strip()
-                                # Skip if it's the title itself, a date, or too short
-                                if not txt or txt == title or len(txt) < 10:
-                                    continue
-                                # Skip date-like elements
-                                if s_el.tag_name == "span" and len(txt) < 20:
-                                    continue
-                                summary = txt
-                                break
-                            if summary:
-                                break
-
-                        # Fallback: try next sibling of parent (dt → dd)
-                        if not summary:
-                            try:
-                                sibling = parent.find_element(
-                                    By.XPATH, "following-sibling::*[1]"
-                                )
-                                txt = sibling.text.strip()
-                                if txt and txt != title and len(txt) >= 10:
+                                if txt and txt != title and len(txt) >= 15:
                                     summary = txt
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                                    break
+                        except Exception:
+                            pass
 
                     article = ArticleInfo(
                         id=_make_article_id(href, title),
