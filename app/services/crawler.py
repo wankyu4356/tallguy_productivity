@@ -831,15 +831,16 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
     return articles
 
 
-def _fetch_article_dates(driver, articles: list[ArticleInfo], on_progress=None) -> None:
-    """Fetch publish dates for articles missing published_at by visiting detail pages."""
-    undated = [a for a in articles if not a.published_at]
-    if not undated:
+def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None) -> None:
+    """Fetch publish dates and summaries for articles missing them by visiting detail pages."""
+    # Articles needing date OR summary
+    needs_detail = [a for a in articles if not a.published_at or not a.summary]
+    if not needs_detail:
         return
 
-    logger.info(f"날짜 미상 기사 {len(undated)}개 — 상세 페이지에서 날짜 추출 시도")
+    logger.info(f"상세정보 보완 필요 기사 {len(needs_detail)}개 — 상세 페이지에서 날짜/요약 추출 시도")
     if on_progress:
-        on_progress(f"날짜 미상 기사 {len(undated)}개 날짜 추출 중...")
+        on_progress(f"기사 상세정보 보완 중... ({len(needs_detail)}개)")
 
     # Save current URL to return later
     original_url = driver.current_url
@@ -902,51 +903,87 @@ def _fetch_article_dates(driver, articles: list[ArticleInfo], on_progress=None) 
     return '';
     """
 
-    fetched = 0
+    # Script to extract article summary/body text
+    summary_script = """
+    // Try common article body selectors
+    var bodySelectors = [
+        '.articleView .article_content', '.articleView .article_body',
+        '.view_cont', '.news_content', '.article_body',
+        '.view_article', '#article_body', '#newsContent',
+        '.article_txt', '.news_body', '.article_view'
+    ];
+    for (var i = 0; i < bodySelectors.length; i++) {
+        var el = document.querySelector(bodySelectors[i]);
+        if (el) {
+            var text = el.innerText.trim();
+            if (text.length > 30) {
+                // Return first 200 chars as summary
+                return text.substring(0, 200);
+            }
+        }
+    }
+    return '';
+    """
+
+    date_fetched = 0
+    summary_fetched = 0
     no_time_count = 0
-    for a in undated:
+    for a in needs_detail:
         try:
+            need_date = not a.published_at
+            need_summary = not a.summary
+
             driver.get(a.url)
             time.sleep(0.5)
-            date_text = driver.execute_script(date_script)
-            if date_text:
-                parsed = _parse_datetime(date_text)
-                if parsed:
-                    a.published_at = parsed
-                    fetched += 1
-                    if not (parsed.hour or parsed.minute):
-                        no_time_count += 1
-                        logger.debug(f"날짜만 추출(시간 없음): '{date_text}' → {parsed} | {a.title[:40]}")
+
+            # Extract date if needed
+            if need_date:
+                date_text = driver.execute_script(date_script)
+                if date_text:
+                    parsed = _parse_datetime(date_text)
+                    if parsed:
+                        a.published_at = parsed
+                        date_fetched += 1
+                        if not (parsed.hour or parsed.minute):
+                            no_time_count += 1
+                            logger.debug(f"날짜만 추출(시간 없음): '{date_text}' → {parsed} | {a.title[:40]}")
+                    else:
+                        logger.debug(f"날짜 파싱 실패: '{date_text}' | {a.title[:40]}")
                 else:
-                    logger.debug(f"날짜 파싱 실패: '{date_text}' | {a.title[:40]}")
-            else:
-                # Last resort: search page source HTML for datetime
+                    # Last resort: search page source HTML for datetime
+                    try:
+                        page_src = driver.page_source
+                        src_match = re.search(
+                            r'(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s+\d{1,2}:\d{2})', page_src
+                        )
+                        if src_match:
+                            parsed = _parse_datetime(src_match.group(1))
+                            if parsed:
+                                a.published_at = parsed
+                                date_fetched += 1
+                                logger.debug(f"HTML 소스에서 날짜 추출: '{src_match.group(1)}' | {a.title[:40]}")
+                    except Exception:
+                        pass
+                    if not a.published_at:
+                        logger.debug(f"날짜 요소 없음 | {a.title[:40]} | url={a.url}")
+
+            # Extract summary if needed
+            if need_summary:
                 try:
-                    page_src = driver.page_source
-                    # Look for full datetime in HTML (often in meta tags or hidden elements)
-                    import re as _re
-                    src_match = _re.search(
-                        r'(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s+\d{1,2}:\d{2})', page_src
-                    )
-                    if src_match:
-                        parsed = _parse_datetime(src_match.group(1))
-                        if parsed:
-                            a.published_at = parsed
-                            fetched += 1
-                            logger.debug(f"HTML 소스에서 날짜 추출: '{src_match.group(1)}' | {a.title[:40]}")
+                    summary_text = driver.execute_script(summary_script)
+                    if summary_text and len(summary_text) >= 20:
+                        a.summary = summary_text[:200]
+                        summary_fetched += 1
                 except Exception:
                     pass
-                if not a.published_at:
-                    logger.debug(f"날짜 요소 없음 | {a.title[:40]} | url={a.url}")
+
         except Exception as e:
-            logger.debug(f"날짜 추출 실패: {a.title[:30]} | {e}")
+            logger.debug(f"상세정보 추출 실패: {a.title[:30]} | {e}")
             continue
 
-    logger.info(f"날짜 추출 완료: {fetched}/{len(undated)}개 성공 (시간 미포함: {no_time_count}개)")
-
-    logger.info(f"날짜 추출 완료: {fetched}/{len(undated)}개 성공")
+    logger.info(f"상세정보 보완 완료: 날짜 {date_fetched}개, 요약 {summary_fetched}개 성공 (시간 미포함: {no_time_count}개)")
     if on_progress:
-        on_progress(f"날짜 추출 완료: {fetched}/{len(undated)}개")
+        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출")
 
     # Return to original page
     try:
@@ -1052,7 +1089,19 @@ async def crawl_all_categories(
                 on_progress(f"⚠ {msg}")
         else:
             # Fetch dates for undated articles from detail pages
-            _fetch_article_dates(driver, all_articles, on_progress)
+            _fetch_article_details(driver, all_articles, on_progress)
+
+            # Post-filter: remove articles that now have dates outside the range
+            before_count = len(all_articles)
+            all_articles = [
+                a for a in all_articles
+                if not a.published_at or (date_from <= a.published_at <= date_to)
+            ]
+            filtered_count = before_count - len(all_articles)
+            if filtered_count > 0:
+                logger.info(f"날짜 범위 외 기사 {filtered_count}개 제거")
+                if on_progress:
+                    on_progress(f"날짜 범위 외 기사 {filtered_count}개 제거")
 
             if on_progress:
                 on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
