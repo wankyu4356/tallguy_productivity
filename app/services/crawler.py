@@ -327,17 +327,14 @@ def _auto_login_sync(driver) -> bool:
     except Exception:
         pass
 
-    # Verify login success
+    # Verify login success — ONLY trust page UI indicators, not URL changes
+    # Navigate to main page to check for logout button
+    driver.get(THEBELL_BASE)
+    time.sleep(2)
+
     if _check_logged_in(driver):
         logger.info("자동 로그인 성공!")
         return True
-
-    # Check if URL moved away from login page
-    current_url = driver.current_url.lower()
-    if not any(kw in current_url for kw in ["login", "logincert"]):
-        if not _is_error_page(driver):
-            logger.info(f"자동 로그인 성공 (URL 이동): {driver.current_url}")
-            return True
 
     logger.warning("자동 로그인 결과 불확실 — 수동 로그인으로 전환")
     return False
@@ -345,34 +342,21 @@ def _auto_login_sync(driver) -> bool:
 
 def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
     """Open TheBell and wait for user to log in manually."""
-    # Load login page if not already on one
-    current_url = driver.current_url.lower()
-    if not any(kw in current_url for kw in ["thebell", "login"]):
-        _load_login_page(driver)
+    # Always reload login page for manual login attempt
+    _load_login_page(driver)
 
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
     start = time.time()
     while time.time() - start < timeout:
         try:
+            # ONLY trust UI indicator check — not URL changes
             if _check_logged_in(driver):
+                logger.info("수동 로그인 성공!")
                 return True
-
-            # URL left the login page
-            current_url = driver.current_url
-            is_login_page = any(
-                kw in current_url.lower()
-                for kw in ["login", "logincert", "loginform"]
-            )
-            is_main_only = current_url.rstrip("/") == THEBELL_BASE.rstrip("/")
-
-            if not is_login_page and not is_main_only and not _is_error_page(driver):
-                logger.info(f"로그인 감지! URL: {current_url}")
-                return True
-
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(2)
 
     logger.error("로그인 타임아웃 (5분)")
     return False
