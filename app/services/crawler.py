@@ -83,36 +83,70 @@ def _is_error_page(driver) -> bool:
 
 
 def _check_logged_in(driver) -> bool:
-    """Check if the user is currently logged in by finding VISIBLE UI elements.
+    """Check if the user is currently logged in.
 
-    IMPORTANT: Do NOT use page_source string search — hidden elements, JS code,
-    and HTML comments can contain 'logout'/'mypage' even when not logged in.
-    Only trust elements that are actually displayed on screen.
+    Strategy (in order):
+    1. Check cookies for session tokens (most reliable)
+    2. Check for visible logout/mypage elements
+    3. Check body text for '로그아웃'
     """
     current_url = driver.current_url
     title = driver.title or "(no title)"
 
-    # CSS selectors for elements that only APPEAR (visible) when logged in
+    # 1) Cookie-based check — most reliable, not affected by page rendering
+    try:
+        cookies = driver.get_cookies()
+        # TheBell uses session cookies after login
+        session_cookie_names = ["ASPSESSIONID", "theloginid", "thebellid",
+                                "loginchk", "LOGINCHK", "LoginCheck"]
+        for cookie in cookies:
+            name = cookie.get("name", "")
+            # Any ASPSESSIONID* cookie + login-related cookies
+            if any(name.upper().startswith(sc.upper()) for sc in session_cookie_names):
+                value = cookie.get("value", "")
+                if value and value not in ("", "0", "false"):
+                    logger.info(f"로그인 확인됨 (쿠키) | cookie={name} | url={current_url}")
+                    return True
+    except Exception:
+        pass
+
+    # 2) Try to detect via JS — check if login-related JS variables exist
+    try:
+        result = driver.execute_script(
+            "return document.querySelector(\"a[href*='LogOut'], a[href*='logout'], "
+            "a[href*='Logout'], a[href*='mypage'], a[href*='MyPage']\") !== null;"
+        )
+        if result:
+            logger.info(f"로그인 확인됨 (JS셀렉터) | url={current_url}")
+            return True
+    except Exception:
+        pass
+
+    # 3) CSS selectors for elements that only APPEAR when logged in
     logged_in_selectors = [
         "a[href*='LogOut']",
         "a[href*='logout']",
         "a[href*='Logout']",
         "a[href*='mypage']",
         "a[href*='MyPage']",
+        ".logout", "#logout",
+        "a.btn_logout",
     ]
 
     for sel in logged_in_selectors:
         try:
             elements = driver.find_elements(By.CSS_SELECTOR, sel)
             for el in elements:
-                if el.is_displayed():
-                    text = el.text.strip() or el.get_attribute("href") or ""
-                    logger.info(f"로그인 확인됨 | url={current_url} | 요소='{sel}' → '{text}'")
+                # Check existence even if not displayed (some sites hide in dropdown)
+                href = el.get_attribute("href") or ""
+                text = el.text.strip() or ""
+                if href or text:
+                    logger.info(f"로그인 확인됨 | url={current_url} | 요소='{sel}' → href='{href}' text='{text}'")
                     return True
         except Exception:
             continue
 
-    # Also check for visible text containing "로그아웃"
+    # 4) Check body text for '로그아웃' (last resort)
     try:
         body = driver.find_element(By.TAG_NAME, "body")
         visible_text = body.text
@@ -327,8 +361,12 @@ def _auto_login_sync(driver) -> bool:
 
 
 def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
-    """Open TheBell and wait for user to log in manually."""
-    # Always reload login page for manual login attempt
+    """Open TheBell and wait for user to log in manually.
+
+    IMPORTANT: Do NOT navigate or use driver.get/back during the wait loop.
+    The user is controlling the browser — we just poll _check_logged_in.
+    """
+    # Load login page once to start
     _load_login_page(driver)
 
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
@@ -339,31 +377,18 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
         try:
             current_url = driver.current_url
 
-            # User navigated away from login page — they might have logged in
-            # Give the new page time to fully render before checking
             if current_url != last_url:
                 logger.info(f"페이지 이동 감지 | {last_url} → {current_url}")
                 last_url = current_url
-                time.sleep(2)  # Wait for page to fully load
+                time.sleep(2)  # Wait for new page to fully load
 
             if _check_logged_in(driver):
                 logger.info("수동 로그인 성공!")
                 return True
 
-            # If user left login page but we can't detect login,
-            # try navigating to main page to check (some pages may not show logout)
-            if not any(kw in current_url.lower() for kw in ["login", "logincert"]):
-                driver.get(THEBELL_BASE)
-                time.sleep(2)
-                if _check_logged_in(driver):
-                    logger.info("수동 로그인 성공! (메인페이지에서 확인)")
-                    return True
-                # Go back so user isn't confused
-                driver.back()
-
         except Exception:
             pass
-        time.sleep(2)
+        time.sleep(3)
 
     logger.error("로그인 타임아웃 (5분)")
     return False
