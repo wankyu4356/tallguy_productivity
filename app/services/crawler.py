@@ -52,7 +52,7 @@ def build_list_url(category_info: dict, page_num: int = 1) -> str:
     }
     if category_info.get("submenucode"):
         params["submenucode"] = category_info["submenucode"]
-    return f"{THEBELL_BASE}/free/content/{menu}.asp?{urlencode(params)}"
+    return f"{THEBELL_BASE}/front/content/{menu}.asp?{urlencode(params)}"
 
 
 LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
@@ -352,13 +352,34 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
 
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
+    last_url = driver.current_url
     start = time.time()
     while time.time() - start < timeout:
         try:
-            # ONLY trust UI indicator check — not URL changes
+            current_url = driver.current_url
+
+            # User navigated away from login page — they might have logged in
+            # Give the new page time to fully render before checking
+            if current_url != last_url:
+                logger.info(f"페이지 이동 감지 | {last_url} → {current_url}")
+                last_url = current_url
+                time.sleep(2)  # Wait for page to fully load
+
             if _check_logged_in(driver):
                 logger.info("수동 로그인 성공!")
                 return True
+
+            # If user left login page but we can't detect login,
+            # try navigating to main page to check (some pages may not show logout)
+            if not any(kw in current_url.lower() for kw in ["login", "logincert"]):
+                driver.get(THEBELL_BASE)
+                time.sleep(2)
+                if _check_logged_in(driver):
+                    logger.info("수동 로그인 성공! (메인페이지에서 확인)")
+                    return True
+                # Go back so user isn't confused
+                driver.back()
+
         except Exception:
             pass
         time.sleep(2)
@@ -511,6 +532,42 @@ def _extract_articles_from_page_sync(driver, category_key: str, category_label: 
     return articles
 
 
+def _diagnose_empty_page(driver, url: str) -> str:
+    """Diagnose why a page returned 0 articles. Returns diagnosis message."""
+    current_url = driver.current_url
+    title = driver.title or "(no title)"
+    body_text = ""
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text[:500]
+    except Exception:
+        pass
+
+    # 1) Redirected to login page → session expired
+    if any(kw in current_url.lower() for kw in ["login", "logincert", "loginform"]):
+        return f"진단: 로그인 페이지로 리다이렉트됨 (세션 만료) | url={current_url}"
+
+    # 2) Bot detection / access denied
+    bot_indicators = ["접근이 차단", "차단", "비정상", "자동화", "bot", "blocked", "denied", "captcha"]
+    for ind in bot_indicators:
+        if ind in body_text.lower() or ind in title.lower():
+            return f"진단: 봇 감지/접근 차단 | url={current_url} | match='{ind}'"
+
+    # 3) Error page / server error
+    if _is_error_page(driver):
+        return f"진단: 에러 페이지 | url={current_url} | title={title}"
+
+    # 4) Blank or minimal page
+    if len(body_text.strip()) < 50:
+        return f"진단: 빈 페이지 (로딩 실패 또는 차단) | url={current_url} | body_len={len(body_text.strip())}"
+
+    # 5) URL changed unexpectedly (redirected somewhere else)
+    if url not in current_url:
+        return f"진단: 예상 외 리다이렉트 | 요청={url} | 실제={current_url}"
+
+    # 6) Page loaded but no matching selectors
+    return f"진단: 페이지 정상 로드됐으나 기사 셀렉터 매칭 실패 | url={current_url} | title={title} | body_preview={body_text[:200]}"
+
+
 def _crawl_category_sync(
     driver,
     category_key: str,
@@ -532,12 +589,23 @@ def _crawl_category_sync(
         try:
             driver.get(url)
         except TimeoutException:
-            logger.warning(f"Timeout loading {url}, retrying...")
+            logger.warning(f"페이지 로드 타임아웃 | url={url}")
             try:
                 driver.get(url)
             except TimeoutException:
-                logger.error(f"Failed to load {url} after retry")
+                logger.error(f"페이지 로드 재시도 실패 | url={url}")
                 break
+
+        time.sleep(1)  # Wait for JS rendering
+
+        # Check if redirected to login (session expired mid-crawl)
+        current_url = driver.current_url.lower()
+        if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
+            diag = "세션 만료: 로그인 페이지로 리다이렉트됨"
+            logger.error(f"{diag} | url={driver.current_url}")
+            if on_progress:
+                on_progress(f"⚠ {diag}")
+            break
 
         # Check if page loaded correctly (bot detection can show error here)
         if _is_error_page(driver):
@@ -547,7 +615,10 @@ def _crawl_category_sync(
         articles = _extract_articles_from_page_sync(driver, category_key, cat_info["label"])
 
         if not articles:
-            logger.info(f"기사 없음, 페이지 종료 | url={url}")
+            diag = _diagnose_empty_page(driver, url)
+            logger.warning(f"기사 0개 | {diag}")
+            if on_progress:
+                on_progress(f"⚠ {cat_info['label']}: {diag}")
             break
 
         # Filter by date window
@@ -618,7 +689,13 @@ async def crawl_all_categories(
                 on_progress(f"오류: {CATEGORY_MAP[cat_key]['label']} 크롤링 실패 - {str(e)}")
             continue
 
-    if on_progress:
-        on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
+    if len(all_articles) == 0:
+        msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 URL 오류 가능성 확인 필요"
+        logger.error(msg)
+        if on_progress:
+            on_progress(f"⚠ {msg}")
+    else:
+        if on_progress:
+            on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
 
     return all_articles
