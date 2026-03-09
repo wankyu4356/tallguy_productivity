@@ -5,6 +5,9 @@ import hashlib
 import re
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -437,9 +440,10 @@ def _parse_datetime(date_str: str) -> datetime | None:
             groups = m.groups()
             if len(groups) >= 5:
                 return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
-                                int(groups[3]), int(groups[4]))
+                                int(groups[3]), int(groups[4]), tzinfo=KST)
             else:
-                return datetime(int(groups[0]), int(groups[1]), int(groups[2]))
+                return datetime(int(groups[0]), int(groups[1]), int(groups[2]),
+                                tzinfo=KST)
     return None
 
 
