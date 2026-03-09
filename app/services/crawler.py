@@ -26,13 +26,16 @@ THEBELL_BASE = "https://www.thebell.co.kr"
 THEBELL_LOGIN_URL = f"{THEBELL_BASE}/LoginCert/Login.asp"
 THEBELL_LOGIN_PROC_URL = f"{THEBELL_BASE}/LoginCert/LoginProc.asp"
 
-# Target categories: menu text to click in the top navigation
-# Each entry: (top_menu_text, [sub_menu_texts]) — None for sub means click top menu only
-CATEGORY_TARGETS = [
-    ("Deal", None),          # Deal 전체
-    ("Finance", None),       # Finance 전체
-    ("Invest", None),        # Invest 전체
-    ("Industry", ["헬스바이오", "건설부동산", "중소기업"]),
+# Target sections: (display_label, section_code)
+# URL pattern: /front/NewsList.asp?Code={code}
+# Code mapping: 01xx=Deal, 02xx=Finance, 03xx=Invest, 04xx=Industry
+SECTION_CODES = [
+    ("Deal",                "0100"),  # Deal 전체
+    ("Finance",             "0200"),  # Finance 전체
+    ("Invest",              "0300"),  # Invest 전체
+    ("Industry - 헬스바이오",  "0406"),
+    ("Industry - 건설부동산",  "0407"),
+    ("Industry - 중소기업",    "0408"),
 ]
 
 
@@ -481,114 +484,26 @@ def _navigate_to_main(driver):
     time.sleep(2)
 
 
-def _click_menu(driver, menu_text: str) -> bool:
-    """Find and click a top navigation menu item by its visible text."""
-    # Try various selectors for navigation links
-    nav_selectors = [
-        "nav a", "#gnb a", ".gnb a", ".nav a", ".menu a",
-        "header a", "#header a", ".lnb a", "#lnb a",
-        "ul.depth1 a", "ul.depth1 > li > a",
-        "#wrap a",
-    ]
+def _navigate_to_section(driver, section_code: str) -> bool:
+    """Navigate directly to a section page by its code.
 
-    for nav_sel in nav_selectors:
-        try:
-            links = driver.find_elements(By.CSS_SELECTOR, nav_sel)
-            for link in links:
-                try:
-                    text = link.text.strip()
-                    if text and menu_text.lower() in text.lower():
-                        if link.is_displayed():
-                            logger.info(f"메뉴 클릭: '{text}' | sel={nav_sel} | href={link.get_attribute('href')}")
-                            link.click()
-                            time.sleep(2)
-                            return True
-                except Exception:
-                    continue
-        except Exception:
-            continue
+    URL pattern: /front/NewsList.asp?Code={section_code}
+    """
+    url = f"{THEBELL_BASE}/front/NewsList.asp?Code={section_code}"
+    logger.info(f"섹션 이동: Code={section_code} | url={url}")
+    driver.get(url)
+    time.sleep(2)
 
-    # Fallback: try all visible <a> tags on page
-    try:
-        all_links = driver.find_elements(By.TAG_NAME, "a")
-        for link in all_links:
-            try:
-                text = link.text.strip()
-                if text and menu_text.lower() == text.lower() and link.is_displayed():
-                    logger.info(f"메뉴 클릭 (fallback): '{text}' | href={link.get_attribute('href')}")
-                    link.click()
-                    time.sleep(2)
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
+    if _is_error_page(driver):
+        logger.warning(f"섹션 페이지 에러 | Code={section_code} | url={driver.current_url}")
+        return False
 
-    # Debug: dump all visible link texts on the page so we can find the right menu names
-    try:
-        all_links = driver.find_elements(By.TAG_NAME, "a")
-        visible_texts = []
-        for link in all_links:
-            try:
-                text = link.text.strip()
-                if text and link.is_displayed() and len(text) < 30:
-                    href = link.get_attribute("href") or ""
-                    visible_texts.append(f"'{text}'→{href}")
-            except Exception:
-                continue
-        logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
-        # Log in chunks to avoid truncation
-        for i in range(0, len(visible_texts), 10):
-            chunk = visible_texts[i:i+10]
-            logger.info(f"[페이지 링크 {i+1}~{i+len(chunk)}] {' | '.join(chunk)}")
-    except Exception:
-        logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
-    return False
+    current_url = driver.current_url.lower()
+    if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
+        logger.error(f"세션 만료: 로그인 리다이렉트 | url={driver.current_url}")
+        return False
 
-
-def _click_submenu(driver, submenu_text: str) -> bool:
-    """Click a submenu/tab item by its visible text."""
-    # Submenu is usually in a secondary nav bar or tab list
-    sub_selectors = [
-        ".snb a", ".sub_menu a", ".tab a", ".depth2 a",
-        "ul.depth2 a", ".sub_nav a", ".category a",
-        "nav a", ".lnb a",
-    ]
-
-    for sel in sub_selectors:
-        try:
-            links = driver.find_elements(By.CSS_SELECTOR, sel)
-            for link in links:
-                try:
-                    text = link.text.strip()
-                    if text and submenu_text in text and link.is_displayed():
-                        logger.info(f"서브메뉴 클릭: '{text}' | sel={sel}")
-                        link.click()
-                        time.sleep(2)
-                        return True
-                except Exception:
-                    continue
-        except Exception:
-            continue
-
-    # Fallback: all visible links
-    try:
-        all_links = driver.find_elements(By.TAG_NAME, "a")
-        for link in all_links:
-            try:
-                text = link.text.strip()
-                if text and submenu_text in text and link.is_displayed():
-                    logger.info(f"서브메뉴 클릭 (fallback): '{text}'")
-                    link.click()
-                    time.sleep(2)
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    logger.warning(f"서브메뉴 '{submenu_text}' 찾을 수 없음 | url={driver.current_url}")
-    return False
+    return True
 
 
 def _click_next_page(driver) -> bool:
@@ -801,57 +716,30 @@ async def crawl_all_categories(
     date_to: datetime,
     on_progress: callable | None = None,
 ) -> list[ArticleInfo]:
-    """Crawl all target categories by clicking through menus."""
+    """Crawl all target categories by navigating directly to section URLs."""
 
     def _crawl_sync():
         driver = context.driver
         all_articles: list[ArticleInfo] = []
         seen_ids = set()
 
-        for top_menu, sub_menus in CATEGORY_TARGETS:
-            # Always start from main page before each category
-            _navigate_to_main(driver)
+        for label, code in SECTION_CODES:
+            if on_progress:
+                on_progress(f"카테고리 수집 시작: {label}")
 
-            if not _click_menu(driver, top_menu):
+            if not _navigate_to_section(driver, code):
                 if on_progress:
-                    on_progress(f"⚠ '{top_menu}' 메뉴를 찾을 수 없음")
+                    on_progress(f"⚠ '{label}' 섹션 이동 실패 (Code={code})")
                 continue
 
-            if sub_menus is None:
-                # Crawl the top-level category page directly
-                label = top_menu
-                if on_progress:
-                    on_progress(f"카테고리 수집 시작: {label}")
-
-                articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
-                for a in articles:
-                    if a.id not in seen_ids:
-                        seen_ids.add(a.id)
-                        all_articles.append(a)
-            else:
-                # Crawl each subcategory
-                for sub in sub_menus:
-                    # Go back to top menu page first
-                    _navigate_to_main(driver)
-                    _click_menu(driver, top_menu)
-
-                    label = f"{top_menu} - {sub}"
-                    if on_progress:
-                        on_progress(f"카테고리 수집 시작: {label}")
-
-                    if not _click_submenu(driver, sub):
-                        if on_progress:
-                            on_progress(f"⚠ '{sub}' 서브메뉴를 찾을 수 없음")
-                        continue
-
-                    articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
-                    for a in articles:
-                        if a.id not in seen_ids:
-                            seen_ids.add(a.id)
-                            all_articles.append(a)
+            articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
+            for a in articles:
+                if a.id not in seen_ids:
+                    seen_ids.add(a.id)
+                    all_articles.append(a)
 
         if len(all_articles) == 0:
-            msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 메뉴 구조 변경 가능성"
+            msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 사이트 구조 변경 가능성"
             logger.error(msg)
             if on_progress:
                 on_progress(f"⚠ {msg}")
