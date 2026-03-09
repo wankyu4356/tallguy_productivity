@@ -64,15 +64,6 @@ _LOGIN_URLS = [
     f"{THEBELL_BASE}/free/login/loginForm.asp",
 ]
 
-# Cookie names that indicate a successful login (ASP-based site)
-_SESSION_COOKIE_PATTERNS = [
-    "aspsessionid",
-    "sess",
-    "member",
-    "auth",
-    "loginck",
-    "user",
-]
 
 
 def _is_error_page(driver) -> bool:
@@ -110,22 +101,39 @@ def _is_error_page(driver) -> bool:
 
 
 def _check_logged_in(driver) -> bool:
-    """Check if the user is currently logged in by cookies or page indicators."""
-    cookies = driver.get_cookies()
-    cookie_names = [c["name"].lower() for c in cookies]
+    """Check if the user is currently logged in by page indicators.
 
-    # Check for session cookies
-    for pattern in _SESSION_COOKIE_PATTERNS:
-        if any(pattern in name for name in cookie_names):
-            logger.info(f"세션 쿠키로 로그인 감지! cookies: {[c['name'] for c in cookies]}")
-            return True
-
-    # Check for logout button / logged-in UI elements on the page
+    NOTE: ASP session cookies (ASPSESSIONID) are set on ANY page visit,
+    so we cannot rely on cookies alone. Instead, check for UI elements
+    that only appear after successful login.
+    """
     try:
         page_source = driver.page_source
-        if "logout" in page_source.lower() or "로그아웃" in page_source:
-            logger.info("페이지에서 로그아웃 버튼 감지 — 로그인 상태")
-            return True
+
+        # Positive indicators: elements visible only when logged in
+        logged_in_indicators = [
+            "로그아웃",
+            "logout",
+            "Logout",
+            "mypage",
+            "마이페이지",
+            "LogOut.asp",
+        ]
+        for indicator in logged_in_indicators:
+            if indicator in page_source:
+                logger.info(f"로그인 감지: '{indicator}' 발견")
+                return True
+
+        # Negative indicators: still on login page
+        login_page_indicators = [
+            "login_form",
+            "LoginProc",
+            "로그인",
+        ]
+        # If login form is present, definitely not logged in
+        if any(ind in page_source for ind in login_page_indicators[:2]):
+            return False
+
     except Exception:
         pass
 
