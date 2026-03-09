@@ -628,17 +628,43 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                     except Exception:
                         pass
 
-                    # Try to get summary
+                    # Try to get summary from surrounding elements
                     summary = ""
                     try:
                         parent = el.find_element(By.XPATH, "./..")
-                        summary_els = parent.find_elements(
-                            By.CSS_SELECTOR, ".summary, .desc, .txt, p"
-                        )
-                        if summary_els:
-                            summary = summary_els[0].text.strip()
-                            if summary == title:
-                                summary = ""
+                        grandparent = parent.find_element(By.XPATH, "./..")
+
+                        summary_css = ".summary, .desc, .txt, .lead, dd, p"
+
+                        # Search grandparent first (covers dl>dt>a + dd structure)
+                        for search_el in [grandparent, parent]:
+                            summary_els = search_el.find_elements(
+                                By.CSS_SELECTOR, summary_css
+                            )
+                            for s_el in summary_els:
+                                txt = s_el.text.strip()
+                                # Skip if it's the title itself, a date, or too short
+                                if not txt or txt == title or len(txt) < 10:
+                                    continue
+                                # Skip date-like elements
+                                if s_el.tag_name == "span" and len(txt) < 20:
+                                    continue
+                                summary = txt
+                                break
+                            if summary:
+                                break
+
+                        # Fallback: try next sibling of parent (dt → dd)
+                        if not summary:
+                            try:
+                                sibling = parent.find_element(
+                                    By.XPATH, "following-sibling::*[1]"
+                                )
+                                txt = sibling.text.strip()
+                                if txt and txt != title and len(txt) >= 10:
+                                    summary = txt
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
