@@ -5,7 +5,6 @@ import hashlib
 import re
 import time
 from datetime import datetime
-from urllib.parse import urlencode
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -27,32 +26,14 @@ THEBELL_BASE = "https://www.thebell.co.kr"
 THEBELL_LOGIN_URL = f"{THEBELL_BASE}/LoginCert/Login.asp"
 THEBELL_LOGIN_PROC_URL = f"{THEBELL_BASE}/LoginCert/LoginProc.asp"
 
-# Category mapping: (menu, svccode, submenucode) for each target section
-# These correspond to TheBell's URL parameters
-CATEGORY_MAP = {
-    # Deal - all subcategories
-    "deal_all": {"label": "Deal - 전체", "menu": "deal", "svccode": "00", "submenucode": ""},
-    # Finance - all subcategories
-    "finance_all": {"label": "Finance - 전체", "menu": "finance", "svccode": "00", "submenucode": ""},
-    # Invest - all subcategories
-    "invest_all": {"label": "Invest - 전체", "menu": "invest", "svccode": "00", "submenucode": ""},
-    # Industry - specific subcategories only
-    "industry_health": {"label": "Industry - 헬스바이오", "menu": "industry", "svccode": "08", "submenucode": ""},
-    "industry_construction": {"label": "Industry - 건설부동산", "menu": "industry", "svccode": "09", "submenucode": ""},
-    "industry_sme": {"label": "Industry - 중소기업", "menu": "industry", "svccode": "10", "submenucode": ""},
-}
-
-
-def build_list_url(category_info: dict, page_num: int = 1) -> str:
-    """Build the article list URL for a given category."""
-    menu = category_info["menu"]
-    params = {
-        "page": str(page_num),
-        "svccode": category_info["svccode"],
-    }
-    if category_info.get("submenucode"):
-        params["submenucode"] = category_info["submenucode"]
-    return f"{THEBELL_BASE}/front/content/{menu}.asp?{urlencode(params)}"
+# Target categories: menu text to click in the top navigation
+# Each entry: (top_menu_text, [sub_menu_texts]) — None for sub means click top menu only
+CATEGORY_TARGETS = [
+    ("Deal", None),          # Deal 전체
+    ("Finance", None),       # Finance 전체
+    ("Invest", None),        # Invest 전체
+    ("Industry", ["헬스바이오", "건설부동산", "중소기업"]),
+]
 
 
 LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
@@ -441,227 +422,335 @@ def _make_article_id(url: str, title: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
-def _extract_articles_from_page_sync(driver, category_key: str, category_label: str) -> list[ArticleInfo]:
-    """Extract article info from a list page (synchronous)."""
-    articles = []
-
-    # Wait for content to load (JS-rendered site)
-    time.sleep(2)
-
-    # TheBell typically renders article lists in various containers
-    article_selectors = [
-        '.articleList li', '.news_list li', '.listBox li',
-        '.list_area li', 'ul.list li', '.article_list li',
-        '.newsBox li', '.board_list li', '.content_list li',
-        'div.listType li', '.newsList li',
-    ]
-
-    items = []
-    for sel in article_selectors:
-        items = driver.find_elements(By.CSS_SELECTOR, sel)
-        if items:
-            break
-
-    if not items:
-        # Fallback: try to find any links that look like article links
-        link_els = driver.find_elements(By.CSS_SELECTOR, 'a[href*="article.asp"]')
-        for el in link_els:
-            href = el.get_attribute("href") or ""
-            title = el.text.strip()
-            if not title or len(title) < 5:
-                continue
-            if not href.startswith("http"):
-                href = THEBELL_BASE + href if href.startswith("/") else f"{THEBELL_BASE}/{href}"
-
-            article = ArticleInfo(
-                id=_make_article_id(href, title),
-                title=title,
-                url=href,
-                category=category_key.split("_")[0],
-                subcategory=category_label,
-            )
-            articles.append(article)
-        return articles
-
-    for item in items:
-        try:
-            # Get the link
-            links = item.find_elements(By.CSS_SELECTOR, "a")
-            if not links:
-                continue
-            link = links[0]
-            href = link.get_attribute("href") or ""
-            title = link.text.strip()
-
-            if not title or len(title) < 3:
-                continue
-
-            if not href.startswith("http"):
-                href = THEBELL_BASE + href if href.startswith("/") else f"{THEBELL_BASE}/{href}"
-
-            # Try to extract date
-            date_str = ""
-            date_els = item.find_elements(By.CSS_SELECTOR, ".date, .time, .datetime, span.txt_time, .news_date")
-            if date_els:
-                date_str = date_els[0].text.strip()
-
-            published_at = _parse_datetime(date_str) if date_str else None
-
-            # Try to extract summary
-            summary = ""
-            summary_els = item.find_elements(By.CSS_SELECTOR, ".summary, .desc, .txt, p")
-            if summary_els:
-                summary = summary_els[0].text.strip()
-                if summary == title:
-                    summary = ""
-
-            article = ArticleInfo(
-                id=_make_article_id(href, title),
-                title=title,
-                url=href,
-                category=category_key.split("_")[0],
-                subcategory=category_label,
-                published_at=published_at,
-                summary=summary[:200] if summary else "",
-            )
-            articles.append(article)
-        except Exception as e:
-            logger.warning(f"Failed to parse article item: {e}")
-            continue
-
-    return articles
 
 
-def _diagnose_empty_page(driver, url: str) -> str:
-    """Diagnose why a page returned 0 articles. Returns diagnosis message."""
+def _diagnose_page(driver) -> str:
+    """Diagnose current page state for troubleshooting."""
     current_url = driver.current_url
     title = driver.title or "(no title)"
     body_text = ""
     try:
-        body_text = driver.find_element(By.TAG_NAME, "body").text[:500]
+        body_text = driver.find_element(By.TAG_NAME, "body").text[:300]
     except Exception:
         pass
 
-    # 1) Redirected to login page → session expired
     if any(kw in current_url.lower() for kw in ["login", "logincert", "loginform"]):
-        return f"진단: 로그인 페이지로 리다이렉트됨 (세션 만료) | url={current_url}"
+        return f"세션 만료 (로그인 리다이렉트) | url={current_url}"
 
-    # 2) Bot detection / access denied
     bot_indicators = ["접근이 차단", "차단", "비정상", "자동화", "bot", "blocked", "denied", "captcha"]
     for ind in bot_indicators:
         if ind in body_text.lower() or ind in title.lower():
-            return f"진단: 봇 감지/접근 차단 | url={current_url} | match='{ind}'"
+            return f"봇 감지/접근 차단 | match='{ind}' | url={current_url}"
 
-    # 3) Error page / server error
     if _is_error_page(driver):
-        return f"진단: 에러 페이지 | url={current_url} | title={title}"
+        return f"에러 페이지 | url={current_url} | title={title}"
 
-    # 4) Blank or minimal page
     if len(body_text.strip()) < 50:
-        return f"진단: 빈 페이지 (로딩 실패 또는 차단) | url={current_url} | body_len={len(body_text.strip())}"
+        return f"빈 페이지 | url={current_url} | body_len={len(body_text.strip())}"
 
-    # 5) URL changed unexpectedly (redirected somewhere else)
-    if url not in current_url:
-        return f"진단: 예상 외 리다이렉트 | 요청={url} | 실제={current_url}"
-
-    # 6) Page loaded but no matching selectors
-    return f"진단: 페이지 정상 로드됐으나 기사 셀렉터 매칭 실패 | url={current_url} | title={title} | body_preview={body_text[:200]}"
+    return f"셀렉터 매칭 실패 | url={current_url} | title={title} | body={body_text[:150]}"
 
 
-def _crawl_category_sync(
+def _navigate_to_main(driver):
+    """Navigate to TheBell main page."""
+    driver.get(THEBELL_BASE)
+    time.sleep(2)
+
+
+def _click_menu(driver, menu_text: str) -> bool:
+    """Find and click a top navigation menu item by its visible text."""
+    # Try various selectors for navigation links
+    nav_selectors = [
+        "nav a", "#gnb a", ".gnb a", ".nav a", ".menu a",
+        "header a", "#header a", ".lnb a", "#lnb a",
+        "ul.depth1 a", "ul.depth1 > li > a",
+        "#wrap a",
+    ]
+
+    for nav_sel in nav_selectors:
+        try:
+            links = driver.find_elements(By.CSS_SELECTOR, nav_sel)
+            for link in links:
+                try:
+                    text = link.text.strip()
+                    if text and menu_text.lower() in text.lower():
+                        if link.is_displayed():
+                            logger.info(f"메뉴 클릭: '{text}' | sel={nav_sel} | href={link.get_attribute('href')}")
+                            link.click()
+                            time.sleep(2)
+                            return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    # Fallback: try all visible <a> tags on page
+    try:
+        all_links = driver.find_elements(By.TAG_NAME, "a")
+        for link in all_links:
+            try:
+                text = link.text.strip()
+                if text and menu_text.lower() == text.lower() and link.is_displayed():
+                    logger.info(f"메뉴 클릭 (fallback): '{text}' | href={link.get_attribute('href')}")
+                    link.click()
+                    time.sleep(2)
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    logger.warning(f"메뉴 '{menu_text}' 찾을 수 없음 | url={driver.current_url}")
+    return False
+
+
+def _click_submenu(driver, submenu_text: str) -> bool:
+    """Click a submenu/tab item by its visible text."""
+    # Submenu is usually in a secondary nav bar or tab list
+    sub_selectors = [
+        ".snb a", ".sub_menu a", ".tab a", ".depth2 a",
+        "ul.depth2 a", ".sub_nav a", ".category a",
+        "nav a", ".lnb a",
+    ]
+
+    for sel in sub_selectors:
+        try:
+            links = driver.find_elements(By.CSS_SELECTOR, sel)
+            for link in links:
+                try:
+                    text = link.text.strip()
+                    if text and submenu_text in text and link.is_displayed():
+                        logger.info(f"서브메뉴 클릭: '{text}' | sel={sel}")
+                        link.click()
+                        time.sleep(2)
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    # Fallback: all visible links
+    try:
+        all_links = driver.find_elements(By.TAG_NAME, "a")
+        for link in all_links:
+            try:
+                text = link.text.strip()
+                if text and submenu_text in text and link.is_displayed():
+                    logger.info(f"서브메뉴 클릭 (fallback): '{text}'")
+                    link.click()
+                    time.sleep(2)
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    logger.warning(f"서브메뉴 '{submenu_text}' 찾을 수 없음 | url={driver.current_url}")
+    return False
+
+
+def _click_next_page(driver) -> bool:
+    """Click the next page link in pagination. Returns False if no more pages."""
+    # Common pagination patterns
+    paging_selectors = [
+        ".paging", ".pagination", ".page_num", ".page_nav",
+        ".pageNum", "#paging", ".board_paging",
+    ]
+
+    # First, try to find a "next" or "다음" button
+    for sel in paging_selectors:
+        try:
+            container = driver.find_elements(By.CSS_SELECTOR, sel)
+            if not container:
+                continue
+            next_links = container[0].find_elements(By.CSS_SELECTOR, "a")
+            for link in next_links:
+                text = link.text.strip()
+                title_attr = (link.get_attribute("title") or "").lower()
+                if text in ["다음", "›", "»", ">", "Next"] or "다음" in title_attr or "next" in title_attr:
+                    if link.is_displayed():
+                        logger.info(f"다음 페이지 클릭: '{text}'")
+                        link.click()
+                        time.sleep(1.5)
+                        return True
+        except Exception:
+            continue
+
+    # Fallback: find page number links and click the next number
+    try:
+        # Look for the currently active page number
+        active_selectors = [
+            ".paging strong", ".paging .on", ".pagination .active",
+            ".page_num strong", ".page_num .on",
+        ]
+        for sel in active_selectors:
+            actives = driver.find_elements(By.CSS_SELECTOR, sel)
+            if actives:
+                current_num = actives[0].text.strip()
+                if current_num.isdigit():
+                    next_num = str(int(current_num) + 1)
+                    # Find a link with the next page number
+                    parent = actives[0].find_element(By.XPATH, "./..")
+                    sibling_links = parent.find_elements(By.TAG_NAME, "a") if parent else []
+                    # Also check the paging container
+                    if not sibling_links:
+                        paging_container = actives[0].find_element(By.XPATH, "./../..")
+                        sibling_links = paging_container.find_elements(By.TAG_NAME, "a")
+                    for link in sibling_links:
+                        if link.text.strip() == next_num and link.is_displayed():
+                            logger.info(f"페이지 {next_num} 클릭")
+                            link.click()
+                            time.sleep(1.5)
+                            return True
+                break
+    except Exception:
+        pass
+
+    logger.info("더 이상 페이지 없음")
+    return False
+
+
+def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
+    """Extract articles from the currently loaded page."""
+    articles = []
+    time.sleep(1)
+
+    # Check for problems first
+    current_url = driver.current_url.lower()
+    if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
+        logger.error(f"세션 만료: 로그인 리다이렉트 | url={driver.current_url}")
+        return []
+
+    if _is_error_page(driver):
+        logger.warning(f"에러 페이지 | url={driver.current_url} | title={driver.title}")
+        return []
+
+    # Find article links — newsview.asp is the TheBell article page
+    link_selectors = [
+        'a[href*="newsview.asp"]',
+        'a[href*="NewsView.asp"]',
+        'a[href*="newsView.asp"]',
+    ]
+
+    seen_urls = set()
+    for sel in link_selectors:
+        try:
+            link_els = driver.find_elements(By.CSS_SELECTOR, sel)
+            for el in link_els:
+                try:
+                    href = el.get_attribute("href") or ""
+                    title = el.text.strip()
+
+                    if not title or len(title) < 5:
+                        continue
+                    if href in seen_urls:
+                        continue
+                    seen_urls.add(href)
+
+                    if not href.startswith("http"):
+                        href = THEBELL_BASE + href if href.startswith("/") else f"{THEBELL_BASE}/{href}"
+
+                    # Try to get date from parent/sibling elements
+                    date_str = ""
+                    published_at = None
+                    try:
+                        parent = el.find_element(By.XPATH, "./..")
+                        grandparent = parent.find_element(By.XPATH, "./..")
+                        container = grandparent
+                        date_els = container.find_elements(
+                            By.CSS_SELECTOR,
+                            ".date, .time, .datetime, span.txt_time, .news_date, .txt_date"
+                        )
+                        if date_els:
+                            date_str = date_els[0].text.strip()
+                            published_at = _parse_datetime(date_str) if date_str else None
+                    except Exception:
+                        pass
+
+                    # Try to get summary
+                    summary = ""
+                    try:
+                        parent = el.find_element(By.XPATH, "./..")
+                        summary_els = parent.find_elements(
+                            By.CSS_SELECTOR, ".summary, .desc, .txt, p"
+                        )
+                        if summary_els:
+                            summary = summary_els[0].text.strip()
+                            if summary == title:
+                                summary = ""
+                    except Exception:
+                        pass
+
+                    article = ArticleInfo(
+                        id=_make_article_id(href, title),
+                        title=title,
+                        url=href,
+                        category=category_label.split(" - ")[0] if " - " in category_label else category_label,
+                        subcategory=category_label,
+                        published_at=published_at,
+                        summary=summary[:200] if summary else "",
+                    )
+                    articles.append(article)
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    logger.info(f"페이지 기사 수집: {len(articles)}개 | url={driver.current_url}")
+    return articles
+
+
+def _crawl_section_sync(
     driver,
-    category_key: str,
+    category_label: str,
     date_from: datetime,
     date_to: datetime,
     on_progress: callable | None = None,
 ) -> list[ArticleInfo]:
-    """Synchronous category crawling logic."""
-    cat_info = CATEGORY_MAP[category_key]
+    """Crawl articles from the currently navigated section with pagination."""
     all_articles = []
     page_num = 1
-    max_pages = 20  # Safety limit
-
-    timeout_sec = settings.CRAWL_TIMEOUT_MS / 1000
-    driver.set_page_load_timeout(timeout_sec)
+    max_pages = 20
 
     while page_num <= max_pages:
-        url = build_list_url(cat_info, page_num)
-        try:
-            driver.get(url)
-        except TimeoutException:
-            logger.warning(f"페이지 로드 타임아웃 | url={url}")
-            try:
-                driver.get(url)
-            except TimeoutException:
-                logger.error(f"페이지 로드 재시도 실패 | url={url}")
-                break
-
-        time.sleep(1)  # Wait for JS rendering
-
-        # Check if redirected to login (session expired mid-crawl)
-        current_url = driver.current_url.lower()
-        if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
-            diag = "세션 만료: 로그인 페이지로 리다이렉트됨"
-            logger.error(f"{diag} | url={driver.current_url}")
-            if on_progress:
-                on_progress(f"⚠ {diag}")
-            break
-
-        # Check if page loaded correctly (bot detection can show error here)
-        if _is_error_page(driver):
-            logger.warning(f"크롤링 중 에러 페이지 | url={url} | title={driver.title}")
-            break
-
-        articles = _extract_articles_from_page_sync(driver, category_key, cat_info["label"])
+        articles = _crawl_current_page(driver, category_label)
 
         if not articles:
-            diag = _diagnose_empty_page(driver, url)
-            logger.warning(f"기사 0개 | {diag}")
-            if on_progress:
-                on_progress(f"⚠ {cat_info['label']}: {diag}")
+            if page_num == 1:
+                diag = _diagnose_page(driver)
+                logger.warning(f"기사 0개 | {category_label} | {diag}")
+                if on_progress:
+                    on_progress(f"⚠ {category_label}: {diag}")
             break
 
         # Filter by date window
+        found_old = False
         for a in articles:
             if a.published_at:
                 if date_from <= a.published_at <= date_to:
                     all_articles.append(a)
                 elif a.published_at < date_from:
-                    # Articles older than our window, stop paginating
-                    if on_progress:
-                        on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 완료")
-                    return all_articles
+                    found_old = True
             else:
                 # No date info, include it
                 all_articles.append(a)
 
         if on_progress:
-            on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
+            on_progress(f"{category_label}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
+
+        if found_old:
+            break
+
+        # Try to go to next page
+        if not _click_next_page(driver):
+            break
 
         page_num += 1
-        time.sleep(0.5)  # Polite crawling delay
 
     if on_progress:
-        on_progress(f"{cat_info['label']}: {len(all_articles)}개 수집 완료")
+        on_progress(f"{category_label}: {len(all_articles)}개 수집 완료")
 
     return all_articles
-
-
-async def crawl_category(
-    context: SeleniumContext,
-    category_key: str,
-    date_from: datetime,
-    date_to: datetime,
-    on_progress: callable | None = None,
-) -> list[ArticleInfo]:
-    """Crawl articles from a specific category within the date window."""
-    try:
-        return await asyncio.to_thread(
-            _crawl_category_sync, context.driver, category_key, date_from, date_to, on_progress
-        )
-    except Exception as e:
-        logger.error(f"Error crawling {category_key}: {e}", exc_info=True)
-        return []
 
 
 async def crawl_all_categories(
@@ -670,32 +759,68 @@ async def crawl_all_categories(
     date_to: datetime,
     on_progress: callable | None = None,
 ) -> list[ArticleInfo]:
-    """Crawl all target categories and return deduplicated articles."""
-    all_articles: list[ArticleInfo] = []
-    seen_ids = set()
+    """Crawl all target categories by clicking through menus."""
 
-    for cat_key in CATEGORY_MAP:
-        if on_progress:
-            on_progress(f"카테고리 수집 시작: {CATEGORY_MAP[cat_key]['label']}")
-        try:
-            articles = await crawl_category(context, cat_key, date_from, date_to, on_progress)
-            for a in articles:
-                if a.id not in seen_ids:
-                    seen_ids.add(a.id)
-                    all_articles.append(a)
-        except Exception as e:
-            logger.error(f"Failed to crawl {cat_key}: {e}", exc_info=True)
+    def _crawl_sync():
+        driver = context.driver
+        all_articles: list[ArticleInfo] = []
+        seen_ids = set()
+
+        for top_menu, sub_menus in CATEGORY_TARGETS:
+            # Always start from main page before each category
+            _navigate_to_main(driver)
+
+            if not _click_menu(driver, top_menu):
+                if on_progress:
+                    on_progress(f"⚠ '{top_menu}' 메뉴를 찾을 수 없음")
+                continue
+
+            if sub_menus is None:
+                # Crawl the top-level category page directly
+                label = top_menu
+                if on_progress:
+                    on_progress(f"카테고리 수집 시작: {label}")
+
+                articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
+                for a in articles:
+                    if a.id not in seen_ids:
+                        seen_ids.add(a.id)
+                        all_articles.append(a)
+            else:
+                # Crawl each subcategory
+                for sub in sub_menus:
+                    # Go back to top menu page first
+                    _navigate_to_main(driver)
+                    _click_menu(driver, top_menu)
+
+                    label = f"{top_menu} - {sub}"
+                    if on_progress:
+                        on_progress(f"카테고리 수집 시작: {label}")
+
+                    if not _click_submenu(driver, sub):
+                        if on_progress:
+                            on_progress(f"⚠ '{sub}' 서브메뉴를 찾을 수 없음")
+                        continue
+
+                    articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
+                    for a in articles:
+                        if a.id not in seen_ids:
+                            seen_ids.add(a.id)
+                            all_articles.append(a)
+
+        if len(all_articles) == 0:
+            msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 메뉴 구조 변경 가능성"
+            logger.error(msg)
             if on_progress:
-                on_progress(f"오류: {CATEGORY_MAP[cat_key]['label']} 크롤링 실패 - {str(e)}")
-            continue
+                on_progress(f"⚠ {msg}")
+        else:
+            if on_progress:
+                on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
 
-    if len(all_articles) == 0:
-        msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 URL 오류 가능성 확인 필요"
-        logger.error(msg)
-        if on_progress:
-            on_progress(f"⚠ {msg}")
-    else:
-        if on_progress:
-            on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
+        return all_articles
 
-    return all_articles
+    try:
+        return await asyncio.to_thread(_crawl_sync)
+    except Exception as e:
+        logger.error(f"크롤링 오류: {e}", exc_info=True)
+        return []
