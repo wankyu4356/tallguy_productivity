@@ -101,39 +101,39 @@ def _is_error_page(driver) -> bool:
 
 
 def _check_logged_in(driver) -> bool:
-    """Check if the user is currently logged in by page indicators.
+    """Check if the user is currently logged in by finding VISIBLE UI elements.
 
-    NOTE: ASP session cookies (ASPSESSIONID) are set on ANY page visit,
-    so we cannot rely on cookies alone. Instead, check for UI elements
-    that only appear after successful login.
+    IMPORTANT: Do NOT use page_source string search — hidden elements, JS code,
+    and HTML comments can contain 'logout'/'mypage' even when not logged in.
+    Only trust elements that are actually displayed on screen.
     """
+    # CSS selectors for elements that only APPEAR (visible) when logged in
+    logged_in_selectors = [
+        "a[href*='LogOut']",
+        "a[href*='logout']",
+        "a[href*='Logout']",
+        "a[href*='mypage']",
+        "a[href*='MyPage']",
+    ]
+
+    for sel in logged_in_selectors:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                if el.is_displayed():
+                    text = el.text.strip() or el.get_attribute("href") or ""
+                    logger.info(f"로그인 감지: 보이는 요소 '{sel}' → '{text}'")
+                    return True
+        except Exception:
+            continue
+
+    # Also check for visible text containing "로그아웃"
     try:
-        page_source = driver.page_source
-
-        # Positive indicators: elements visible only when logged in
-        logged_in_indicators = [
-            "로그아웃",
-            "logout",
-            "Logout",
-            "mypage",
-            "마이페이지",
-            "LogOut.asp",
-        ]
-        for indicator in logged_in_indicators:
-            if indicator in page_source:
-                logger.info(f"로그인 감지: '{indicator}' 발견")
-                return True
-
-        # Negative indicators: still on login page
-        login_page_indicators = [
-            "login_form",
-            "LoginProc",
-            "로그인",
-        ]
-        # If login form is present, definitely not logged in
-        if any(ind in page_source for ind in login_page_indicators[:2]):
-            return False
-
+        body = driver.find_element(By.TAG_NAME, "body")
+        visible_text = body.text
+        if "로그아웃" in visible_text:
+            logger.info("로그인 감지: 화면에 '로그아웃' 텍스트 표시됨")
+            return True
     except Exception:
         pass
 
