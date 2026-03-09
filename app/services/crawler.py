@@ -52,10 +52,50 @@ LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
 
 # Multiple login URL candidates (site structure changes over time)
 _LOGIN_URLS = [
+    f"{THEBELL_BASE}/front/member/login.asp",
     f"{THEBELL_BASE}/LoginCert/Login.asp",
     f"{THEBELL_BASE}/free/login/loginForm.asp",
     f"{THEBELL_BASE}/member/login",
+    f"{THEBELL_BASE}/login",
 ]
+
+
+def _is_error_page(driver) -> bool:
+    """Check whether the current page is a 404 or error page."""
+    page_text = driver.page_source[:3000].lower()
+    current_url = driver.current_url.lower()
+
+    # Check page title for error indicators
+    title = driver.title.lower() if driver.title else ""
+
+    error_indicators = [
+        # Korean 404 messages
+        "찾을 수 없습니다",
+        "찾을 수가 없습니다",
+        "페이지를 찾을 수",
+        "존재하지 않는 페이지",
+        "요청하신 페이지",
+        # English 404 messages
+        "404",
+        "not found",
+        "page not found",
+        "error page",
+    ]
+
+    for indicator in error_indicators:
+        if indicator in page_text or indicator in title or indicator in current_url:
+            return True
+
+    # Check if the page body is essentially empty (broken page)
+    try:
+        body = driver.find_element(By.TAG_NAME, "body")
+        body_text = body.text.strip()
+        if len(body_text) < 20:
+            return True
+    except Exception:
+        pass
+
+    return False
 
 
 def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
@@ -63,13 +103,21 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
     # Try login URLs until one doesn't 404
     login_loaded = False
     for url in _LOGIN_URLS:
+        logger.debug(f"Trying login URL: {url}")
         driver.get(url)
-        time.sleep(2)
-        page_text = driver.page_source[:2000].lower()
-        # Check if page is a 404 error page
-        if "찾을 수 없습니다" in page_text or "찾을 수가 없습니다" in page_text:
-            logger.debug(f"Login URL 404: {url}")
+        time.sleep(3)
+
+        # Re-check after a longer delay to catch JS redirects
+        if _is_error_page(driver):
+            logger.debug(f"Login URL error (first check): {url}")
             continue
+
+        # Wait a bit more for possible delayed redirects
+        time.sleep(2)
+        if _is_error_page(driver):
+            logger.debug(f"Login URL error (after redirect): {url}")
+            continue
+
         login_loaded = True
         logger.info(f"Login page loaded: {url}")
         break
@@ -100,15 +148,11 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
                 kw in current_url.lower()
                 for kw in ["login", "logincert", "loginform"]
             )
-            is_error_page = "error" in current_url.lower()
             is_main_only = current_url.rstrip("/") == THEBELL_BASE.rstrip("/")
 
-            if not is_login_page and not is_error_page and not is_main_only:
-                # Verify it's not a 404 page by checking content
-                page_text = driver.page_source[:1000].lower()
-                if "찾을 수 없습니다" not in page_text and "찾을 수가 없습니다" not in page_text:
-                    logger.info(f"로그인 감지! URL: {current_url}")
-                    return True
+            if not is_login_page and not is_main_only and not _is_error_page(driver):
+                logger.info(f"로그인 감지! URL: {current_url}")
+                return True
 
         except Exception:
             pass  # browser may be navigating
