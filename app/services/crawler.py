@@ -93,16 +93,15 @@ def _check_logged_in(driver) -> bool:
     current_url = driver.current_url
     title = driver.title or "(no title)"
 
-    # 1) Cookie-based check — most reliable, not affected by page rendering
+    # 1) Cookie-based check — only login-specific cookies, NOT generic session cookies
+    # ASPSESSIONID is created for ALL visitors, so it must NOT be used here
     try:
         cookies = driver.get_cookies()
-        # TheBell uses session cookies after login
-        session_cookie_names = ["ASPSESSIONID", "theloginid", "thebellid",
-                                "loginchk", "LOGINCHK", "LoginCheck"]
+        login_cookie_names = ["theloginid", "thebellid", "loginchk",
+                              "LOGINCHK", "LoginCheck", "loginid", "LOGINID"]
         for cookie in cookies:
             name = cookie.get("name", "")
-            # Any ASPSESSIONID* cookie + login-related cookies
-            if any(name.upper().startswith(sc.upper()) for sc in session_cookie_names):
+            if any(name.upper() == sc.upper() for sc in login_cookie_names):
                 value = cookie.get("value", "")
                 if value and value not in ("", "0", "false"):
                     logger.info(f"로그인 확인됨 (쿠키) | cookie={name} | url={current_url}")
