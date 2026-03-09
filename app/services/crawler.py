@@ -87,6 +87,7 @@ def _is_error_page(driver) -> bool:
 
     for indicator in error_indicators:
         if indicator in page_text or indicator in title or indicator in current_url:
+            logger.warning(f"에러 페이지 감지 | url={current_url} | title={driver.title} | match='{indicator}'")
             return True
 
     try:
@@ -107,6 +108,9 @@ def _check_logged_in(driver) -> bool:
     and HTML comments can contain 'logout'/'mypage' even when not logged in.
     Only trust elements that are actually displayed on screen.
     """
+    current_url = driver.current_url
+    title = driver.title or "(no title)"
+
     # CSS selectors for elements that only APPEAR (visible) when logged in
     logged_in_selectors = [
         "a[href*='LogOut']",
@@ -122,7 +126,7 @@ def _check_logged_in(driver) -> bool:
             for el in elements:
                 if el.is_displayed():
                     text = el.text.strip() or el.get_attribute("href") or ""
-                    logger.info(f"로그인 감지: 보이는 요소 '{sel}' → '{text}'")
+                    logger.info(f"로그인 확인됨 | url={current_url} | 요소='{sel}' → '{text}'")
                     return True
         except Exception:
             continue
@@ -132,11 +136,12 @@ def _check_logged_in(driver) -> bool:
         body = driver.find_element(By.TAG_NAME, "body")
         visible_text = body.text
         if "로그아웃" in visible_text:
-            logger.info("로그인 감지: 화면에 '로그아웃' 텍스트 표시됨")
+            logger.info(f"로그인 확인됨 | url={current_url} | '로그아웃' 텍스트 표시")
             return True
     except Exception:
         pass
 
+    logger.info(f"로그인 안됨 | url={current_url} | title={title}")
     return False
 
 
@@ -534,9 +539,15 @@ def _crawl_category_sync(
                 logger.error(f"Failed to load {url} after retry")
                 break
 
+        # Check if page loaded correctly (bot detection can show error here)
+        if _is_error_page(driver):
+            logger.warning(f"크롤링 중 에러 페이지 | url={url} | title={driver.title}")
+            break
+
         articles = _extract_articles_from_page_sync(driver, category_key, cat_info["label"])
 
         if not articles:
+            logger.info(f"기사 없음, 페이지 종료 | url={url}")
             break
 
         # Filter by date window

@@ -1,32 +1,42 @@
 import logging
-import json
 import sys
-from datetime import datetime, timezone
 
 
-class JSONFormatter(logging.Formatter):
+class CompactFormatter(logging.Formatter):
+    """One-line format optimized for copy-paste troubleshooting."""
+
     def format(self, record):
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if hasattr(record, "session_id"):
-            log_entry["session_id"] = record.session_id
+        # Short level: I/W/E/D
+        level_short = {"INFO": "I", "WARNING": "W", "ERROR": "E", "DEBUG": "D"}.get(
+            record.levelname, record.levelname[0]
+        )
+
+        # Short module name: app.services.crawler → crawler
+        name = record.name.rsplit(".", 1)[-1]
+
+        msg = record.getMessage()
+
+        line = f"[{level_short}] {name}: {msg}"
+
         if record.exc_info and record.exc_info[1]:
-            log_entry["error"] = str(record.exc_info[1])
-            log_entry["error_type"] = type(record.exc_info[1]).__name__
-        return json.dumps(log_entry, ensure_ascii=False)
+            err_type = type(record.exc_info[1]).__name__
+            line += f" | {err_type}: {record.exc_info[1]}"
+
+        return line
 
 
 def setup_logging(level: str = "INFO"):
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JSONFormatter())
+    handler.setFormatter(CompactFormatter())
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     root.handlers.clear()
     root.addHandler(handler)
+
+    # Suppress noisy third-party loggers
+    for noisy in ["selenium", "urllib3", "asyncio", "httpcore", "httpx"]:
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     return root
 
 
