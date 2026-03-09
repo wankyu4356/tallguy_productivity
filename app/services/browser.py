@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.edge.options import Options
 
 from app.config import settings
 from app.utils.logging import get_logger
@@ -12,9 +12,9 @@ logger = get_logger(__name__)
 
 
 class SeleniumContext:
-    """Wraps a WebDriver instance, mirroring Playwright's BrowserContext interface."""
+    """Wraps a WebDriver instance."""
 
-    def __init__(self, driver: webdriver.Chrome):
+    def __init__(self, driver: webdriver.Edge):
         self.driver = driver
 
     async def close(self):
@@ -23,7 +23,7 @@ class SeleniumContext:
 
 class BrowserManager:
     def __init__(self):
-        self._chrome_options: Options | None = None
+        self._edge_options: Options | None = None
         self._started: bool = False
 
     async def start(self):
@@ -35,13 +35,13 @@ class BrowserManager:
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-gpu")
         opts.add_argument("--disable-dev-shm-usage")
-        self._chrome_options = opts
+        self._edge_options = opts
 
         # Warm-up: trigger Selenium Manager download on first run
         try:
             driver = await asyncio.to_thread(self._create_driver)
             await asyncio.to_thread(driver.quit)
-            logger.info("Browser warm-up complete (Chrome + ChromeDriver ready)")
+            logger.info("Browser warm-up complete (Edge + EdgeDriver ready)")
         except Exception as e:
             logger.warning(f"Browser warm-up failed: {e}")
 
@@ -65,18 +65,18 @@ class BrowserManager:
         driver.set_page_load_timeout(settings.NAVIGATION_TIMEOUT_MS / 1000)
         return SeleniumContext(driver)
 
-    def _create_driver(self, headless: bool | None = None) -> webdriver.Chrome:
+    def _create_driver(self, headless: bool | None = None) -> webdriver.Edge:
         if headless is None or headless == settings.BROWSER_HEADLESS:
-            return webdriver.Chrome(options=self._chrome_options)
+            return webdriver.Edge(options=self._edge_options)
         # Build new options with overridden headless setting
         opts = Options()
-        for arg in self._chrome_options.arguments:
+        for arg in self._edge_options.arguments:
             if arg.startswith("--headless"):
                 continue
             opts.add_argument(arg)
         if headless:
             opts.add_argument("--headless=new")
-        return webdriver.Chrome(options=opts)
+        return webdriver.Edge(options=opts)
 
     @property
     def is_running(self) -> bool:
