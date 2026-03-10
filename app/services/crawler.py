@@ -1013,7 +1013,7 @@ def _crawl_section_sync(
     all_articles = []
     seen_ids = set()
     page_num = 1
-    max_pages = 20
+    max_pages = 10
 
     while page_num <= max_pages:
         articles = _crawl_current_page(driver, category_label)
@@ -1035,6 +1035,7 @@ def _crawl_section_sync(
 
         # Filter by date window
         found_old = False
+        undated_on_page = 0
         for a in articles:
             if a.published_at:
                 if date_from <= a.published_at <= date_to:
@@ -1042,8 +1043,14 @@ def _crawl_section_sync(
                 elif a.published_at < date_from:
                     found_old = True
             else:
-                # No date info, include it
+                # No date info — tentatively include, will verify via detail page later
+                undated_on_page += 1
                 all_articles.append(a)
+
+        # If ALL articles on this page lack dates, likely deep into old pages
+        if undated_on_page > 0 and undated_on_page == len(articles):
+            logger.info(f"페이지 전체 날짜 없음 — 오래된 페이지 가능성 | {category_label} 페이지 {page_num}")
+            break
 
         if on_progress:
             on_progress(f"{category_label}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
@@ -1104,17 +1111,24 @@ async def crawl_all_categories(
             # Fetch dates for undated articles from detail pages
             _fetch_article_details(driver, all_articles, on_progress)
 
-            # Post-filter: remove articles that now have dates outside the range
+            # Post-filter: remove articles outside date range OR still without dates
             before_count = len(all_articles)
-            all_articles = [
-                a for a in all_articles
-                if not a.published_at or (date_from <= a.published_at <= date_to)
-            ]
-            filtered_count = before_count - len(all_articles)
-            if filtered_count > 0:
-                logger.info(f"날짜 범위 외 기사 {filtered_count}개 제거")
+            no_date_count = 0
+            out_of_range_count = 0
+            filtered = []
+            for a in all_articles:
+                if not a.published_at:
+                    no_date_count += 1
+                elif not (date_from <= a.published_at <= date_to):
+                    out_of_range_count += 1
+                else:
+                    filtered.append(a)
+            all_articles = filtered
+            removed = before_count - len(all_articles)
+            if removed > 0:
+                logger.info(f"필터링: 날짜 범위 외 {out_of_range_count}개, 날짜 미상 {no_date_count}개 제거")
                 if on_progress:
-                    on_progress(f"날짜 범위 외 기사 {filtered_count}개 제거")
+                    on_progress(f"필터링: 범위 외 {out_of_range_count}개, 날짜 미상 {no_date_count}개 제거")
 
             if on_progress:
                 on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
