@@ -64,85 +64,74 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
             try:
                 driver.get(print_url)
-                time.sleep(1.5)
+                time.sleep(0.5)
                 if not _is_error_page_simple(driver):
-                    logger.info(f"프린트 URL 직접 접근 | url={print_url}")
                     return True
                 # Error page — go back to article
                 driver.get(article_url)
-                time.sleep(1)
+                time.sleep(0.5)
             except Exception:
                 driver.get(article_url)
-                time.sleep(1)
-            break
+                time.sleep(0.5)
+            # URL replacement tried — skip button clicking for known sites
+            return False
 
-    # Strategy 2: Find and click print button (handles onclick popups)
-    # First, override window.print() to prevent native print dialog
-    # which opens edge://print/ and kills the browser session
+    # Strategy 2: Find and click print button (only for non-TheBell sites)
+    # Override window.print() to prevent native print dialog
     try:
         driver.execute_script("window.print = function() {};")
     except Exception:
         pass
 
-    print_selectors = [
-        (By.CSS_SELECTOR, '.btn_print'),
-        (By.CSS_SELECTOR, '#btn_print'),
-        (By.CSS_SELECTOR, 'a.print'),
-        (By.CSS_SELECTOR, 'a[href*="print" i]'),
-        (By.CSS_SELECTOR, 'a[onclick*="print" i]'),
-        (By.CSS_SELECTOR, 'a[onclick*="Print" i]'),
-        (By.CSS_SELECTOR, 'button[onclick*="print" i]'),
-        (By.XPATH, '//a[contains(text(),"프린트")]'),
-        (By.XPATH, '//a[contains(text(),"인쇄")]'),
-        (By.XPATH, '//button[contains(text(),"프린트")]'),
-        (By.XPATH, '//img[@alt="프린트"]/..'),
-        (By.XPATH, '//img[contains(@src,"print")]/..'),
-    ]
+    # Use a single fast CSS query to find any print-related element
+    _PRINT_CSS = (
+        '.btn_print, #btn_print, a.print, '
+        'a[href*="print" i], a[onclick*="print" i], '
+        'button[onclick*="print" i]'
+    )
+    try:
+        els = driver.find_elements(By.CSS_SELECTOR, _PRINT_CSS)
+        if not els:
+            # Fallback: XPath for Korean text
+            for xp in [
+                '//a[contains(text(),"프린트")]',
+                '//a[contains(text(),"인쇄")]',
+            ]:
+                els = driver.find_elements(By.XPATH, xp)
+                if els:
+                    break
+        if not els:
+            return False
 
-    for by, sel in print_selectors:
-        try:
-            els = driver.find_elements(by, sel)
-            if not els:
-                continue
+        el = els[0]
+        el.click()
+        time.sleep(0.5)
 
-            el = els[0]
-            onclick = el.get_attribute("onclick") or ""
-            href = el.get_attribute("href") or ""
-            logger.debug(f"프린트 버튼 클릭 시도 | selector={sel} | onclick={onclick[:80]} | href={href[:80]}")
-            el.click()
-            time.sleep(1.5)
+        # Check if a new window/tab was opened (JS popup)
+        all_windows = driver.window_handles
+        if len(all_windows) > 1:
+            new_window = [w for w in all_windows if w != original_window][0]
+            driver.switch_to.window(new_window)
+            time.sleep(0.3)
 
-            # Check if a new window/tab was opened (JS popup)
-            all_windows = driver.window_handles
-            if len(all_windows) > 1:
-                new_window = [w for w in all_windows if w != original_window][0]
-                driver.switch_to.window(new_window)
-                time.sleep(1)
+            try:
+                current_url = driver.current_url
+            except Exception:
+                _close_extra_windows(driver, original_window)
+                return False
 
-                # Check for browser-internal pages (edge://print, chrome://print)
-                # These will crash the session if we try CDP commands on them
-                try:
-                    current_url = driver.current_url
-                except Exception:
-                    # Session may already be damaged — close and abort
-                    _close_extra_windows(driver, original_window)
-                    return False
+            if current_url.startswith(("edge://", "chrome://", "about:")):
+                logger.warning(f"브라우저 내부 페이지 감지, 닫기 | url={current_url}")
+                _close_extra_windows(driver, original_window)
+                return False
 
-                if current_url.startswith(("edge://", "chrome://", "about:")):
-                    logger.warning(f"브라우저 내부 페이지 감지, 닫기 | url={current_url}")
-                    _close_extra_windows(driver, original_window)
-                    return False
+            return True
 
-                logger.info(f"프린트 팝업 감지 | url={current_url}")
-                return True
+        if "print" in driver.current_url.lower():
+            return True
 
-            # Check if current page changed to a print page
-            if "print" in driver.current_url.lower():
-                logger.info(f"프린트 페이지 이동 | url={driver.current_url}")
-                return True
-
-        except Exception:
-            continue
+    except Exception:
+        pass
 
     return False
 
@@ -192,7 +181,7 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
     try:
         driver.set_page_load_timeout(settings.CRAWL_TIMEOUT_MS / 1000)
         driver.get(article.url)
-        time.sleep(2)
+        time.sleep(0.5)
 
         # Extract article content
         content_selectors = [
