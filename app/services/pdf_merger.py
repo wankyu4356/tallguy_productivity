@@ -17,6 +17,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib.colors import black
 
+import re as _re
+
 from app.models.schemas import ClassifiedOutput, ArticleWithContent
 from app.utils.logging import get_logger
 
@@ -194,13 +196,17 @@ class _TOCDocTemplate(SimpleDocTemplate):
 def _build_index_pdf(
     ordered_articles: list[ArticleWithContent],
     page_offsets: dict[str, int],
+    classification: ClassifiedOutput | None = None,
 ) -> tuple[bytes, list[dict]]:
-    """Generate a flat-list TOC page matching the reference format.
+    """Generate a TOC with category section headers.
 
     Format:
         콘텐츠
         ─────────────────────────────
+        1. Deal
+          A. 경영권 인수 및 매각, 투자 유치
         기사 제목 ··················· 페이지
+          B. 투자회수
         기사 제목 ··················· 페이지
         ...
 
@@ -218,6 +224,7 @@ def _build_index_pdf(
         bottomMargin=20 * mm,
     )
 
+    # --- Styles ---
     title_style = ParagraphStyle(
         "TOC_Title",
         fontName=font_name_bold,
@@ -226,6 +233,37 @@ def _build_index_pdf(
         alignment=1,  # center
         spaceAfter=4 * mm,
     )
+    cat_style = ParagraphStyle(
+        "TOC_Category",
+        fontName=font_name_bold,
+        fontSize=12,
+        leading=15,
+        spaceBefore=4 * mm,
+        spaceAfter=1.5 * mm,
+    )
+    subcat_style = ParagraphStyle(
+        "TOC_Subcategory",
+        fontName=font_name_bold,
+        fontSize=10.5,
+        leading=13,
+        leftIndent=4 * mm,
+        spaceBefore=2 * mm,
+        spaceAfter=1 * mm,
+        textColor=black,
+    )
+    subitem_style = ParagraphStyle(
+        "TOC_SubItem",
+        fontName=font_name_bold,
+        fontSize=10,
+        leading=12,
+        leftIndent=8 * mm,
+        spaceBefore=1.5 * mm,
+        spaceAfter=0.5 * mm,
+        textColor=black,
+    )
+
+    articles_map = {a.info.id: a for a in ordered_articles}
+    article_font_size = 11
 
     elements: list = []
 
@@ -238,22 +276,133 @@ def _build_index_pdf(
         spaceAfter=4 * mm, spaceBefore=2 * mm,
     ))
 
-    # Article entries as flat list
-    for a in ordered_articles:
-        page_num = page_offsets.get(a.info.id, 0)
-        entry = _TOCLine(
-            title=a.info.title,
-            page_num=page_num,
-            font_name=font_name,
-            font_size=10,
-            article_id=a.info.id,
-            target_page=page_num,
-        )
-        elements.append(entry)
-        elements.append(Spacer(1, 2 * mm))
+    def _add_article_entries(article_ids: list[str]):
+        """Helper to add TOC lines for a list of article IDs."""
+        for aid in article_ids:
+            a = articles_map.get(aid)
+            if not a:
+                continue
+            page_num = page_offsets.get(aid, 0)
+            entry = _TOCLine(
+                title=a.info.title,
+                page_num=page_num,
+                font_name=font_name,
+                font_size=article_font_size,
+                article_id=aid,
+                target_page=page_num,
+            )
+            elements.append(entry)
+            elements.append(Spacer(1, 1.5 * mm))
+
+    # Build with classification structure if available
+    if classification and classification.categories:
+        emitted_ids: set[str] = set()
+
+        for cat_idx, cat in enumerate(classification.categories, 1):
+            # Category header: "1. Deal"
+            elements.append(
+                Paragraph(f"{cat_idx}. {xml_escape(cat.name)}", cat_style)
+            )
+
+            if cat.subcategories:
+                for sub_idx, sub in enumerate(cat.subcategories):
+                    sub_letter = chr(ord("A") + sub_idx)
+                    # Subcategory header: "A. 경영권 인수 및 매각, 투자 유치"
+                    elements.append(
+                        Paragraph(
+                            f"{sub_letter}. {xml_escape(sub.name)}",
+                            subcat_style,
+                        )
+                    )
+
+                    if sub.sub_items:
+                        for si in sub.sub_items:
+                            # Sub-item header: "- 환경/폐기물"
+                            elements.append(
+                                Paragraph(
+                                    f"- {xml_escape(si.name)}",
+                                    subitem_style,
+                                )
+                            )
+                            _add_article_entries(si.articles)
+                            emitted_ids.update(si.articles)
+                    else:
+                        _add_article_entries(sub.articles)
+                        emitted_ids.update(sub.articles)
+            else:
+                # Category with direct articles (e.g., Fundraising)
+                _add_article_entries(cat.articles)
+                emitted_ids.update(cat.articles)
+
+        # Any articles not captured by classification
+        remaining = [
+            a for a in ordered_articles if a.info.id not in emitted_ids
+        ]
+        if remaining:
+            elements.append(
+                Paragraph(f"{len(classification.categories) + 1}. 기타", cat_style)
+            )
+            _add_article_entries([a.info.id for a in remaining])
+    else:
+        # No classification — flat list fallback
+        for a in ordered_articles:
+            page_num = page_offsets.get(a.info.id, 0)
+            entry = _TOCLine(
+                title=a.info.title,
+                page_num=page_num,
+                font_name=font_name,
+                font_size=article_font_size,
+                article_id=a.info.id,
+                target_page=page_num,
+            )
+            elements.append(entry)
+            elements.append(Spacer(1, 1.5 * mm))
 
     doc.build(elements)
     return buf.getvalue(), doc.toc_entries
+
+
+# ---------------------------------------------------------------------------
+# Copyright-only page detection
+# ---------------------------------------------------------------------------
+
+_COPYRIGHT_PATTERNS = [
+    _re.compile(r"저작권자.*thebell", _re.IGNORECASE),
+    _re.compile(r"무단\s*전재.*재배포.*금지"),
+    _re.compile(r"AI\s*학습\s*이용\s*금지"),
+    _re.compile(r"자본시장\s*미디어"),
+]
+
+
+def _is_copyright_only_page(page) -> bool:
+    """Return True if the page contains only a copyright notice and no real content."""
+    try:
+        text = page.extract_text() or ""
+    except Exception:
+        return False
+
+    stripped = text.strip()
+    if not stripped:
+        # Blank page — also remove
+        return True
+
+    # If the text is short and matches copyright patterns, it's junk
+    if len(stripped) > 200:
+        return False
+
+    has_copyright = any(p.search(stripped) for p in _COPYRIGHT_PATTERNS)
+    if not has_copyright:
+        return False
+
+    # Remove the copyright text and see if anything meaningful remains
+    cleaned = stripped
+    for p in _COPYRIGHT_PATTERNS:
+        cleaned = p.sub("", cleaned)
+    # Remove common punctuation / whitespace
+    cleaned = _re.sub(r"[<>ⓒ'\s,.\-–—_©®]+", "", cleaned)
+
+    # If almost nothing left after removing copyright → junk page
+    return len(cleaned) < 30
 
 
 # ---------------------------------------------------------------------------
@@ -288,12 +437,15 @@ def merge_pdfs(
         logger.warning("No PDFs to merge")
         return output_path
 
-    # Pre-read page counts
+    # Pre-read page counts (excluding copyright-only pages)
     article_page_counts: dict[str, int] = {}
     for a in ordered_articles:
         try:
             reader = PdfReader(a.pdf_path)
-            article_page_counts[a.info.id] = len(reader.pages)
+            real_pages = sum(
+                1 for p in reader.pages if not _is_copyright_only_page(p)
+            )
+            article_page_counts[a.info.id] = real_pages
         except Exception as e:
             logger.error(f"Error reading PDF {a.pdf_path}: {e}")
 
@@ -309,7 +461,9 @@ def merge_pdfs(
     # Generate index to determine its page count
     if on_progress:
         on_progress("인덱스 페이지 생성 중...")
-    index_pdf_bytes, _ = _build_index_pdf(ordered_articles, page_offsets)
+    index_pdf_bytes, _ = _build_index_pdf(
+        ordered_articles, page_offsets, classification,
+    )
     index_page_count = len(PdfReader(io.BytesIO(index_pdf_bytes)).pages)
 
     # Second pass: recalculate with index pages included
@@ -323,7 +477,7 @@ def merge_pdfs(
 
     # Regenerate index with correct page numbers
     index_pdf_bytes, toc_entries = _build_index_pdf(
-        ordered_articles, page_offsets_final
+        ordered_articles, page_offsets_final, classification,
     )
     index_reader = PdfReader(io.BytesIO(index_pdf_bytes))
 
@@ -344,6 +498,8 @@ def merge_pdfs(
             article_first_page[a.info.id] = first_page_idx
 
             for page in reader.pages:
+                if _is_copyright_only_page(page):
+                    continue
                 writer.add_page(page)
 
             writer.add_outline_item(a.info.title, first_page_idx)
