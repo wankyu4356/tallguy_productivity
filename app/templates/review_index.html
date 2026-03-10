@@ -105,6 +105,12 @@ function renderTree(tree) {
     });
 }
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 function createSortableList(articles) {
     const list = document.createElement('div');
     list.className = 'ri-article-list';
@@ -114,21 +120,28 @@ function createSortableList(articles) {
         item.className = 'ri-article-item';
         item.dataset.id = art.id;
 
+        const catTag = art.category
+            ? `<span class="ri-article-cat-tag">${escapeHtml(art.category)}</span>`
+            : '';
+
+        const summary = art.summary
+            ? `<div class="ri-article-summary">${escapeHtml(art.summary)}</div>`
+            : '';
+
         item.innerHTML = `
             <div class="ri-drag-handle" title="드래그하여 순서 변경">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/>
-                    <circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/>
-                    <circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/>
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm0 6a2 2 0 10.001 4.001A2 2 0 007 8zm0 6a2 2 0 10.001 4.001A2 2 0 007 14zm6-8a2 2 0 10-.001-4.001A2 2 0 0013 6zm0 2a2 2 0 10.001 4.001A2 2 0 0013 8zm0 6a2 2 0 10.001 4.001A2 2 0 0013 14z"/>
                 </svg>
             </div>
-            <div class="ri-article-content">
-                <div class="ri-article-num">(${idx + 1})</div>
+            <div class="ri-article-body">
+                <div class="ri-article-num">${idx + 1}</div>
                 <div class="ri-article-info">
                     <div class="ri-article-title">
-                        <a href="${art.url}" target="_blank">${art.title}</a>
+                        <a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>
                     </div>
-                    <div class="ri-article-summary">${art.summary || ''}</div>
+                    <div class="ri-article-meta">${catTag}</div>
+                    ${summary}
                 </div>
             </div>
         `;
@@ -154,7 +167,7 @@ function createSortableList(articles) {
 function renumberList(list) {
     list.querySelectorAll('.ri-article-item').forEach((item, idx) => {
         const numEl = item.querySelector('.ri-article-num');
-        if (numEl) numEl.textContent = `(${idx + 1})`;
+        if (numEl) numEl.textContent = idx + 1;
     });
 }
 
