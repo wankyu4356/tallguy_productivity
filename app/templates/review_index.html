@@ -57,7 +57,7 @@ function renderTree(tree) {
     tree.forEach((cat, catIdx) => {
         const catId = `cat-${catIdx}`;
         const catCard = document.createElement('div');
-        catCard.className = `card ri-category ri-theme-${catIdx % 8}`;
+        catCard.className = `ri-category ri-theme-${catIdx % 8}`;
         catCard.id = catId;
         catCard.dataset.catIdx = catIdx;
 

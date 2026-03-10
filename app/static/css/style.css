@@ -413,19 +413,34 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .ri-theme-7 { --sec-color: #4338ca; --sec-bg: #eef2ff; --sec-border: #a5b4fc; --sec-light: #e0e7ff; }
 
 /* Category / subcategory / subitem headers */
-.ri-category { margin-bottom: 0; scroll-margin-top: 56px; }
+.ri-category {
+    margin-bottom: 0;
+    scroll-margin-top: 56px;
+    background: var(--sec-bg, var(--card-bg));
+    border: 1.5px solid var(--sec-border, var(--border));
+    border-top: 3px solid var(--sec-color, var(--primary));
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s;
+}
+.ri-category:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
 .ri-category > h2 {
     color: var(--sec-color, var(--primary));
-    font-size: 16px;
+    font-size: 15px;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
+    margin-bottom: 10px;
+    padding: 6px 10px;
+    background: var(--sec-light, #f0f4ff);
+    border-radius: 6px;
 }
 .ri-category > h2::before {
     content: '';
-    width: 3px;
+    width: 4px;
     height: 18px;
     background: var(--sec-color, var(--primary));
     border-radius: 2px;
@@ -433,15 +448,17 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 }
 
 .ri-subcategory {
-    margin-left: 12px;
+    margin-left: 4px;
     margin-top: 10px;
-    padding-left: 12px;
-    border-left: 2px solid var(--sec-color, var(--border));
+    padding: 8px 8px 8px 10px;
+    border-left: 3px solid var(--sec-color, var(--border));
+    background: rgba(255,255,255,0.6);
+    border-radius: 0 6px 6px 0;
 }
 .ri-subcategory > h3 {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text);
+    color: var(--sec-color, var(--text));
     margin-bottom: 6px;
 }
 
@@ -452,10 +469,10 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .ri-subitem-header {
     font-weight: 600;
     font-size: 12px;
-    color: var(--text-light);
+    color: var(--sec-color, var(--text-light));
     margin-bottom: 4px;
     padding: 2px 8px;
-    background: #f0f4ff;
+    background: var(--sec-light, #f0f4ff);
     border-radius: 4px;
     display: inline-block;
 }
@@ -471,24 +488,25 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
     transition: background 0.2s;
 }
 .ri-article-list.ri-drop-active {
-    background: #eff6ff;
-    outline: 2px dashed #93c5fd;
+    background: var(--sec-light, #eff6ff);
+    outline: 2px dashed var(--sec-color, #93c5fd);
     outline-offset: -2px;
 }
 
 .ri-article-item {
     display: flex;
     align-items: center;
-    background: var(--sec-bg, var(--card-bg));
+    background: white;
     border: 1px solid var(--sec-border, var(--border));
     border-radius: 6px;
     cursor: default;
-    transition: box-shadow 0.15s, border-color 0.15s;
+    transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
     overflow: hidden;
 }
 .ri-article-item:hover {
     border-color: var(--sec-color, #a5b4fc);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
 }
 
 .ri-drag-handle {
@@ -500,17 +518,19 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
     min-width: 28px;
     max-width: 28px;
     align-self: stretch;
-    background: #f8fafc;
-    border-right: 1px solid var(--border);
+    background: var(--sec-light, #f8fafc);
+    border-right: 1px solid var(--sec-border, var(--border));
     flex-shrink: 0;
     flex-grow: 0;
-    color: #c0c8d4;
-    transition: background 0.15s, color 0.15s;
+    color: var(--sec-color, #c0c8d4);
+    opacity: 0.5;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
     overflow: hidden;
 }
 .ri-drag-handle:hover {
-    background: #e0edff;
-    color: var(--primary);
+    background: var(--sec-color, #e0edff);
+    color: white;
+    opacity: 1;
 }
 .ri-drag-handle:active { cursor: grabbing; }
 .ri-drag-handle svg {
