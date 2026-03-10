@@ -857,6 +857,30 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
     # Use JavaScript to extract date+time from article detail pages
     # TheBell detail pages typically have date info in various structures
     date_script = """
+    // Strategy 0: meta tags (most reliable — structured data, not display text)
+    var metaSelectors = [
+        'meta[property="article:published_time"]',
+        'meta[property="og:article:published_time"]',
+        'meta[name="pubdate"]',
+        'meta[name="date"]',
+        'meta[name="DC.date.issued"]',
+        'meta[itemprop="datePublished"]',
+        'time[datetime]'
+    ];
+    for (var i = 0; i < metaSelectors.length; i++) {
+        var el = document.querySelector(metaSelectors[i]);
+        if (el) {
+            var val = el.getAttribute('content') || el.getAttribute('datetime') || '';
+            if (val) {
+                // ISO format: 2026-03-10T09:30:00 or 2026-03-10 09:30
+                var isoMatch = val.match(/(\\d{4})[\\-](\\d{1,2})[\\-](\\d{1,2})[T\\s](\\d{1,2}):(\\d{2})/);
+                if (isoMatch) return isoMatch[1] + '.' + isoMatch[2] + '.' + isoMatch[3] + ' ' + isoMatch[4] + ':' + isoMatch[5];
+                var dateOnly = val.match(/(\\d{4})[\\-](\\d{1,2})[\\-](\\d{1,2})/);
+                if (dateOnly) return dateOnly[1] + '.' + dateOnly[2] + '.' + dateOnly[3];
+            }
+        }
+    }
+
     // Strategy 1: Look for elements with common date-related classes
     var dateSelectors = [
         '.articleView .article_info .date',
@@ -1013,7 +1037,8 @@ def _crawl_section_sync(
     all_articles = []
     seen_ids = set()
     page_num = 1
-    max_pages = 10
+    max_pages = 20
+    consecutive_undated_pages = 0  # track pages with no datable articles
 
     while page_num <= max_pages:
         articles = _crawl_current_page(driver, category_label)
@@ -1033,29 +1058,45 @@ def _crawl_section_sync(
             break
         seen_ids.update(new_ids)
 
-        # Filter by date window
+        # Filter by date window — undated articles are ALWAYS included (never miss)
         found_old = False
-        undated_on_page = 0
+        dated_count = 0
         for a in articles:
             if a.published_at:
+                dated_count += 1
                 if date_from <= a.published_at <= date_to:
                     all_articles.append(a)
                 elif a.published_at < date_from:
                     found_old = True
+                # future dates: include (clock skew tolerance)
+                else:
+                    all_articles.append(a)
             else:
-                # No date info — tentatively include, will verify via detail page later
-                undated_on_page += 1
+                # No date info — MUST include; date will be verified via detail page
                 all_articles.append(a)
 
-        # If ALL articles on this page lack dates, likely deep into old pages
-        if undated_on_page > 0 and undated_on_page == len(articles):
-            logger.info(f"페이지 전체 날짜 없음 — 오래된 페이지 가능성 | {category_label} 페이지 {page_num}")
-            break
+        # Track consecutive pages where no article had a parseable date
+        if dated_count == 0:
+            consecutive_undated_pages += 1
+        else:
+            consecutive_undated_pages = 0
 
         if on_progress:
             on_progress(f"{category_label}: {len(all_articles)}개 수집 중... (페이지 {page_num})")
 
         if found_old:
+            break
+
+        # Safety: if 3+ consecutive pages have zero parseable dates,
+        # we're likely in an area where date parsing is broken.
+        # Include what we collected (all undated articles are kept)
+        # and rely on detail-page date fetch + post-filter.
+        if consecutive_undated_pages >= 3:
+            logger.warning(
+                f"연속 {consecutive_undated_pages}페이지 날짜 파싱 불가 — "
+                f"페이지네이션 중단 | {category_label} 페이지 {page_num} | "
+                f"수집된 기사 {len(all_articles)}개 (상세페이지에서 날짜 보완 예정)"
+            )
             break
 
         # Try to go to next page
@@ -1111,24 +1152,18 @@ async def crawl_all_categories(
             # Fetch dates for undated articles from detail pages
             _fetch_article_details(driver, all_articles, on_progress)
 
-            # Post-filter: remove articles outside date range OR still without dates
+            # Post-filter: ONLY remove articles with confirmed old dates
+            # Articles without dates are ALWAYS kept (never risk missing)
             before_count = len(all_articles)
-            no_date_count = 0
-            out_of_range_count = 0
-            filtered = []
-            for a in all_articles:
-                if not a.published_at:
-                    no_date_count += 1
-                elif not (date_from <= a.published_at <= date_to):
-                    out_of_range_count += 1
-                else:
-                    filtered.append(a)
-            all_articles = filtered
-            removed = before_count - len(all_articles)
-            if removed > 0:
-                logger.info(f"필터링: 날짜 범위 외 {out_of_range_count}개, 날짜 미상 {no_date_count}개 제거")
+            all_articles = [
+                a for a in all_articles
+                if not a.published_at or (date_from <= a.published_at <= date_to)
+            ]
+            filtered_count = before_count - len(all_articles)
+            if filtered_count > 0:
+                logger.info(f"날짜 확인 후 범위 외 기사 {filtered_count}개 제거")
                 if on_progress:
-                    on_progress(f"필터링: 범위 외 {out_of_range_count}개, 날짜 미상 {no_date_count}개 제거")
+                    on_progress(f"날짜 확인 후 범위 외 기사 {filtered_count}개 제거")
 
             if on_progress:
                 on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
