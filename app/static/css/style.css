@@ -330,11 +330,11 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .log-info { color: #93c5fd; }
 
 /* Review Index - layout */
-.ri-container { max-width: 1600px; }
+.ri-container { max-width: 100%; padding: 0 16px; box-sizing: border-box; }
 
 #classification-tree {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     align-items: start;
 }
