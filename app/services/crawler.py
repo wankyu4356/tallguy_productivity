@@ -843,7 +843,13 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
 def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None) -> None:
     """Fetch publish dates and summaries for articles missing them by visiting detail pages."""
     # Articles needing date OR summary
-    needs_detail = [a for a in articles if not a.published_at or not a.summary]
+    needs_detail = [
+        a for a in articles
+        if (not a.published_at or not a.summary)
+        and a.url
+        and "thebell.co.kr" in a.url
+        and "newsview" in a.url.lower()
+    ]
     if not needs_detail:
         return
 
@@ -967,6 +973,7 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
             need_date = not a.published_at
             need_summary = not a.summary
 
+            logger.debug(f"상세정보 방문: {a.title[:40]} | url={a.url}")
             driver.get(a.url)
             time.sleep(0.5)
             consecutive_errors = 0  # reset on successful navigation
