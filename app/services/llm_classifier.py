@@ -35,17 +35,50 @@ RECOMMEND_SYSTEM_PROMPT = """당신은 한국 금융/투자 업계의 뉴스 분
 
 JSON 형식으로 응답해주세요."""
 
-CLASSIFY_SYSTEM_PROMPT = f"""당신은 한국 금융/투자 뉴스를 분류하는 전문가입니다.
+CLASSIFY_SYSTEM_PROMPT = f"""당신은 E&F 프라이빗에쿼티(PE)의 시각에서 한국 금융/투자 뉴스를 분류하는 전문가입니다.
 
 다음 분류 체계에 따라 기사들을 분류하고 배치해주세요:
 
 {CLASSIFICATION_TAXONOMY}
 
-각 기사를 가장 적합한 카테고리에 배치하세요.
-한 기사는 하나의 카테고리에만 배치됩니다.
-같은 카테고리 내에서는 중요도순으로 정렬하세요.
+## 분류 규칙 (반드시 준수)
 
-JSON 형식으로 응답해주세요."""
+1. **IB하우스/증권사 관련 기사** → Deal > 기타
+   - 주관 실적, 리그테이블, IB하우스 순위, 증권사 경쟁 등
+   - 예: "삼성증권 IB 실적 1위", "IPO 주관 경쟁 심화"
+
+2. **IPO 관련 기사** → Deal > 투자회수
+   - IPO는 PE의 관점에서 투자회수(Exit) 수단
+   - 예: "○○기업 IPO 추진", "코스닥 상장 준비", "공모주 시장"
+
+3. **CB(전환사채), BW(신주인수권부사채), 채권 발행** → Deal > 경영권 인수 및 매각, 투자 유치
+   - 자금 조달/투자 유치의 일환
+   - 예: "300억 CB 조달", "메자닌 투자", "BW 발행"
+
+4. **PF(프로젝트 파이낸싱)** → Industry > E&F 포트폴리오 관련 산업 업계 동향 > 건설/부동산
+   - PF는 건설/부동산 관련
+   - 예: "부동산 PF 리스크", "PF 구조조정"
+
+5. 위 4가지 규칙에 해당하지 않는 기사는, 기사 내용을 꼼꼼히 읽고 가장 적합한 카테고리에 분류하세요.
+   분류 판단 시 논거를 탄탄하게 세워야 합니다:
+   - 기사의 핵심 주제가 무엇인지
+   - E&F PE 관점에서 어떤 카테고리와 가장 관련이 깊은지
+   - 경계선 상의 기사는 PE 투자/운용 관점에서 더 의미 있는 쪽으로 배치
+
+## 정렬 규칙
+
+**각 카테고리 내에서, 그리고 전체 article_order에서도, E&F PE의 중대성/중요성 관점에서
+중요한 순으로 내림차순 배열하세요.**
+
+중요도 판단 기준:
+- E&F PE 포트폴리오에 직접적 영향이 있는 기사가 최우선
+- 대형 딜, 주요 투자 회수, 핵심 산업 트렌드 > 소형 딜, 일반 산업 동향
+- 펀드레이징/GP 선정 관련 주요 이슈
+- 시장 전반에 영향을 미치는 규제/정책 변화
+
+한 기사는 하나의 카테고리에만 배치됩니다.
+
+JSON 형식으로 응답해주세요. 반드시 classification_reasoning 필드에 각 기사의 분류 이유를 간단히 적어주세요."""
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -112,11 +145,21 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
     client = _get_client()
 
     articles_text = "\n---\n".join([
-        f"[{a.info.id}] 제목: {a.info.title}\n카테고리: {a.info.subcategory}\n내용: {a.content[:1000]}"
+        f"[{a.info.id}] 제목: {a.info.title}\n카테고리: {a.info.subcategory}\n내용: {a.content[:1500]}"
         for a in articles
     ])
 
-    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 각 카테고리 내에서 중요도순으로 배치해주세요.
+    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+
+## 필수 분류 규칙 (반드시 적용):
+1. IB하우스/증권사 관련(주관 실적, 리그테이블 등) → Deal > 기타
+2. IPO 관련(상장, 공모, 코스닥/코스피 상장 등) → Deal > 투자회수
+3. CB/BW/채권 발행/메자닌 → Deal > 경영권 인수 및 매각, 투자 유치
+4. PF(프로젝트 파이낸싱) → Industry > E&F 포트폴리오 > 건설/부동산
+
+## 중요도 정렬:
+- E&F PE 관점에서의 중대성/중요성 기준 내림차순
+- 각 카테고리 내에서도, 전체 article_order에서도 중요한 순
 
 기사들:
 {articles_text}
@@ -137,16 +180,20 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
     }},
     "fundraising": ["기사ID", ...]
   }},
-  "article_order": ["기사ID1", "기사ID2", ...]
+  "article_order": ["기사ID1", "기사ID2", ...],
+  "classification_reasoning": {{
+    "기사ID": "분류 이유 (어떤 규칙 적용, 왜 이 카테고리인지)"
+  }}
 }}
 
 article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록입니다.
-분류 체계 순서(Deal → Industry → Fundraising)를 따르세요."""
+분류 체계 순서(Deal → Industry → Fundraising)를 따르되,
+각 섹션 내에서는 중요도 내림차순으로 정렬하세요."""
 
     try:
         response = client.messages.create(
             model=settings.CLAUDE_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             system=CLASSIFY_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -155,6 +202,11 @@ article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록
         json_match = _extract_json(text)
         if json_match:
             data = json.loads(json_match)
+            # Log classification reasoning for debugging
+            reasoning = data.get("classification_reasoning", {})
+            if reasoning:
+                for aid, reason in reasoning.items():
+                    logger.info(f"Classification: [{aid}] → {reason}")
             return _parse_classification(data, articles)
     except Exception as e:
         logger.error(f"LLM classification failed: {e}", exc_info=True)
