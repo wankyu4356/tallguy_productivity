@@ -128,19 +128,23 @@ async def get_crawl_status(session_id: str):
     }
 
 
+class RecommendRequest(BaseModel):
+    max_count: int | None = None
+
+
 @router.post("/api/recommend/{session_id}")
-async def start_recommend(session_id: str, background_tasks: BackgroundTasks):
+async def start_recommend(session_id: str, body: RecommendRequest, background_tasks: BackgroundTasks):
     """Start LLM recommendation on crawled articles."""
     sessions = _get_sessions()
     session = sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
 
-    background_tasks.add_task(_recommend_task, session_id)
+    background_tasks.add_task(_recommend_task, session_id, body.max_count)
     return {"status": "recommending"}
 
 
-async def _recommend_task(session_id: str):
+async def _recommend_task(session_id: str, max_count: int | None = None):
     """Background task for LLM recommendation."""
     from app.services.llm_classifier import recommend_articles
 
@@ -149,8 +153,9 @@ async def _recommend_task(session_id: str):
     session.status = SessionStatus.RECOMMENDING
 
     try:
-        session.progress_messages.append("LLM 기사 추천 분석 중...")
-        recommendations = await recommend_articles(session.articles)
+        count_msg = f" (목표: 약 {max_count}개)" if max_count else ""
+        session.progress_messages.append(f"LLM 기사 추천 분석 중...{count_msg}")
+        recommendations = await recommend_articles(session.articles, max_count=max_count)
         session.recommendations = recommendations
         session.status = SessionStatus.RECOMMEND_DONE
         recommended_count = sum(1 for r in recommendations if r.recommended)

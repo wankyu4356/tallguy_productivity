@@ -13,9 +13,13 @@
         </div>
 
         {% if session.status.value == 'crawl_done' and not session.recommendations %}
-        <div id="recommend-action" style="margin-bottom: 16px;">
+        <div id="recommend-action" style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label for="max-count" style="font-size: 14px; font-weight: 500;">추천 기사 수:</label>
+            <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
+                   placeholder="예: 20" style="width: 80px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;">
+            <span style="font-size: 13px; color: var(--text-light);">/ {{ session.articles | length }}개</span>
             <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
-            <span id="recommend-status" style="margin-left: 12px; color: var(--text-light);"></span>
+            <span id="recommend-status" style="color: var(--text-light);"></span>
         </div>
         {% endif %}
 
@@ -111,9 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function requestRecommend() {
     const status = document.getElementById('recommend-status');
-    status.textContent = 'AI 분석 중...';
+    const maxCountInput = document.getElementById('max-count');
+    const maxCount = maxCountInput && maxCountInput.value ? parseInt(maxCountInput.value) : null;
+    status.textContent = maxCount ? `AI 분석 중... (약 ${maxCount}개 추천 예정)` : 'AI 분석 중...';
     try {
-        await fetch(`/api/recommend/${SESSION_ID}`, { method: 'POST' });
+        const body = {};
+        if (maxCount) body.max_count = maxCount;
+        await fetch(`/api/recommend/${SESSION_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
         // Poll for results
         const interval = setInterval(async () => {
             const res = await fetch(`/api/recommend/${SESSION_ID}`);

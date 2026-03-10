@@ -85,8 +85,16 @@ def _get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
-async def recommend_articles(articles: list[ArticleInfo]) -> list[ArticleRecommendation]:
-    """Use Claude to recommend which articles are worth including."""
+async def recommend_articles(
+    articles: list[ArticleInfo],
+    max_count: int | None = None,
+) -> list[ArticleRecommendation]:
+    """Use Claude to recommend which articles are worth including.
+
+    Args:
+        articles: List of articles to evaluate.
+        max_count: If given, recommend approximately this many articles.
+    """
     if not articles:
         return []
 
@@ -97,7 +105,11 @@ async def recommend_articles(articles: list[ArticleInfo]) -> list[ArticleRecomme
         for a in articles
     ])
 
-    prompt = f"""다음 기사 목록에서 PE 투자 전문가에게 유의미한 기사를 추천해주세요.
+    count_instruction = ""
+    if max_count is not None:
+        count_instruction = f"\n\n**중요: 전체 {len(articles)}개 기사 중 약 {max_count}개 내외로 추천해주세요. 가장 유의미한 기사를 우선적으로 선택하세요.**"
+
+    prompt = f"""다음 기사 목록에서 PE 투자 전문가에게 유의미한 기사를 추천해주세요.{count_instruction}
 
 기사 목록:
 {articles_text}
