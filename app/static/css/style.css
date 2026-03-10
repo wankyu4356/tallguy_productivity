@@ -330,6 +330,21 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .log-info { color: #93c5fd; }
 
 /* Review Index - layout */
+.ri-container { max-width: 1600px; }
+
+#classification-tree {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    align-items: start;
+}
+@media (max-width: 1200px) {
+    #classification-tree { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+    #classification-tree { grid-template-columns: 1fr; }
+}
+
 .ri-header {
     display: flex;
     align-items: center;
@@ -398,7 +413,7 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .ri-theme-7 { --sec-color: #4338ca; --sec-bg: #eef2ff; --sec-border: #a5b4fc; --sec-light: #e0e7ff; }
 
 /* Category / subcategory / subitem headers */
-.ri-category { margin-bottom: 16px; scroll-margin-top: 56px; }
+.ri-category { margin-bottom: 0; scroll-margin-top: 56px; }
 .ri-category > h2 {
     color: var(--sec-color, var(--primary));
     font-size: 16px;
