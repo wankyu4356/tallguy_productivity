@@ -961,6 +961,7 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
     date_fetched = 0
     summary_fetched = 0
     no_time_count = 0
+    consecutive_errors = 0
     for a in needs_detail:
         try:
             need_date = not a.published_at
@@ -968,6 +969,7 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
 
             driver.get(a.url)
             time.sleep(0.5)
+            consecutive_errors = 0  # reset on successful navigation
 
             # Extract date if needed
             if need_date:
@@ -1011,6 +1013,20 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
                     pass
 
         except Exception as e:
+            consecutive_errors += 1
+            err_msg = str(e).lower()
+            is_session_dead = (
+                "invalid session" in err_msg
+                or "disconnected" in err_msg
+                or "session deleted" in err_msg
+                or "unable to receive message from renderer" in err_msg
+            )
+            if is_session_dead or consecutive_errors >= 3:
+                logger.warning(
+                    f"상세정보 수집 중단: 브라우저 문제 | "
+                    f"날짜 {date_fetched}개 추출 완료 | {e}"
+                )
+                break
             logger.debug(f"상세정보 추출 실패: {a.title[:30]} | {e}")
             continue
 
@@ -1150,7 +1166,14 @@ async def crawl_all_categories(
                 on_progress(f"⚠ {msg}")
         else:
             # Fetch dates for undated articles from detail pages
-            _fetch_article_details(driver, all_articles, on_progress)
+            # This may fail if browser session dies — that's OK,
+            # we still return what we have (undated articles are kept)
+            try:
+                _fetch_article_details(driver, all_articles, on_progress)
+            except Exception as e:
+                logger.warning(f"상세정보 보완 중 오류 (수집된 기사는 유지): {e}")
+                if on_progress:
+                    on_progress(f"⚠ 상세정보 보완 중 오류 — 수집된 기사는 유지됩니다")
 
             # Post-filter: ONLY remove articles with confirmed old dates
             # Articles without dates are ALWAYS kept (never risk missing)
