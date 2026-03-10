@@ -328,3 +328,116 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
 .log-error { color: #fca5a5; }
 .log-success { color: #6ee7b7; }
 .log-info { color: #93c5fd; }
+
+/* Review Index - drag and drop */
+.ri-category { margin-bottom: 20px; }
+.ri-category > h2 { color: var(--primary); }
+
+.ri-subcategory {
+    margin-left: 12px;
+    margin-top: 12px;
+}
+.ri-subcategory > h3 {
+    font-size: 15px;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+
+.ri-subitem {
+    margin-left: 12px;
+    margin-top: 8px;
+}
+.ri-subitem-header {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-light);
+    margin-bottom: 6px;
+}
+
+.ri-article-list {
+    min-height: 8px;
+}
+
+.ri-article-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    margin: 4px 0;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: default;
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+.ri-article-item:hover {
+    border-color: var(--primary);
+    box-shadow: 0 1px 4px rgba(26, 86, 219, 0.1);
+}
+
+.ri-drag-handle {
+    cursor: grab;
+    color: var(--text-light);
+    padding: 4px 2px;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+.ri-drag-handle:hover { opacity: 1; }
+.ri-drag-handle:active { cursor: grabbing; }
+
+.ri-article-content {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.ri-article-num {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-light);
+    flex-shrink: 0;
+    min-width: 28px;
+}
+
+.ri-article-info { flex: 1; min-width: 0; }
+
+.ri-article-title {
+    font-size: 14px;
+    font-weight: 500;
+}
+.ri-article-title a {
+    color: var(--text);
+    text-decoration: none;
+}
+.ri-article-title a:hover {
+    color: var(--primary);
+    text-decoration: underline;
+}
+
+.ri-article-summary {
+    font-size: 12px;
+    color: var(--text-light);
+    margin-top: 4px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* SortableJS drag states */
+.ri-ghost {
+    opacity: 0.4;
+    border: 2px dashed var(--primary);
+    background: #e0edff;
+}
+.ri-chosen {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: var(--primary);
+}
+.ri-drag {
+    opacity: 0.9;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}

@@ -101,7 +101,14 @@ evtSource.addEventListener('done', function(event) {
     const status = event.data;
     document.getElementById('current-status').textContent = status;
 
-    if (status === 'done') {
+    if (status === 'review_ready') {
+        updateStep('fetch', 'done');
+        updateStep('classify', 'done');
+        appendLog('log-area', 'AI 분류 완료! 검수 페이지로 이동합니다...', 'success');
+        setTimeout(() => {
+            window.location.href = `/review-index/${SESSION_ID}`;
+        }, 1000);
+    } else if (status === 'done') {
         steps.forEach(s => updateStep(s, 'done'));
         document.getElementById('done-area').style.display = 'block';
         appendLog('log-area', '모든 작업이 완료되었습니다!', 'success');

@@ -419,16 +419,35 @@ def merge_pdfs(
     articles_map = {a.info.id: a for a in articles if a.pdf_path}
     writer = PdfWriter()
 
-    # Collect ordered articles
+    # Collect ordered articles following the classification tree structure
+    # so that the PDF page order matches the TOC order exactly.
     ordered_articles: list[ArticleWithContent] = []
     seen_ids: set[str] = set()
-    for aid in classification.article_order:
+
+    def _collect_ids_from_tree(cls: ClassifiedOutput) -> list[str]:
+        """Walk the classification tree and return article IDs in TOC order."""
+        ids: list[str] = []
+        for cat in cls.categories:
+            if cat.subcategories:
+                for sub in cat.subcategories:
+                    if sub.sub_items:
+                        for si in sub.sub_items:
+                            ids.extend(si.articles)
+                    else:
+                        ids.extend(sub.articles)
+            else:
+                ids.extend(cat.articles)
+        return ids
+
+    for aid in _collect_ids_from_tree(classification):
+        if aid in seen_ids:
+            continue
         a = articles_map.get(aid)
         if a and a.pdf_path and Path(a.pdf_path).exists():
             ordered_articles.append(a)
             seen_ids.add(aid)
 
-    # Add articles we might have missed
+    # Add articles we might have missed (not in classification tree)
     for a in articles:
         if a.info.id not in seen_ids and a.pdf_path and Path(a.pdf_path).exists():
             ordered_articles.append(a)
