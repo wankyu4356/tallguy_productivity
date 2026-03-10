@@ -402,15 +402,15 @@ a.article-title:hover { color: var(--primary); text-decoration: underline; }
     color: white;
 }
 
-/* Section color themes */
-.ri-theme-0 { --sec-color: #1a56db; --sec-bg: #eff6ff; --sec-border: #bfdbfe; --sec-light: #dbeafe; }
-.ri-theme-1 { --sec-color: #059669; --sec-bg: #ecfdf5; --sec-border: #a7f3d0; --sec-light: #d1fae5; }
-.ri-theme-2 { --sec-color: #d97706; --sec-bg: #fffbeb; --sec-border: #fde68a; --sec-light: #fef3c7; }
-.ri-theme-3 { --sec-color: #dc2626; --sec-bg: #fef2f2; --sec-border: #fecaca; --sec-light: #fee2e2; }
-.ri-theme-4 { --sec-color: #7c3aed; --sec-bg: #f5f3ff; --sec-border: #c4b5fd; --sec-light: #ede9fe; }
-.ri-theme-5 { --sec-color: #0891b2; --sec-bg: #ecfeff; --sec-border: #a5f3fc; --sec-light: #cffafe; }
-.ri-theme-6 { --sec-color: #be185d; --sec-bg: #fdf2f8; --sec-border: #fbcfe8; --sec-light: #fce7f3; }
-.ri-theme-7 { --sec-color: #4338ca; --sec-bg: #eef2ff; --sec-border: #a5b4fc; --sec-light: #e0e7ff; }
+/* Section color themes - pastel */
+.ri-theme-0 { --sec-color: #6b9eed; --sec-bg: #f0f5ff; --sec-border: #c7dbfa; --sec-light: #dce8fc; }
+.ri-theme-1 { --sec-color: #6bc8a5; --sec-bg: #f0faf5; --sec-border: #b4e8d3; --sec-light: #d0f0e2; }
+.ri-theme-2 { --sec-color: #e8b86d; --sec-bg: #fdf8f0; --sec-border: #f2ddb3; --sec-light: #f7eacd; }
+.ri-theme-3 { --sec-color: #e8878a; --sec-bg: #fdf2f2; --sec-border: #f5c4c6; --sec-light: #fad8d9; }
+.ri-theme-4 { --sec-color: #a78bdf; --sec-bg: #f5f2ff; --sec-border: #d0c3f1; --sec-light: #e2daf7; }
+.ri-theme-5 { --sec-color: #6bbfcf; --sec-bg: #f0fafc; --sec-border: #b4e3ed; --sec-light: #cfeef4; }
+.ri-theme-6 { --sec-color: #e088ad; --sec-bg: #fdf2f7; --sec-border: #f2c4d6; --sec-light: #f7d8e5; }
+.ri-theme-7 { --sec-color: #8b8de0; --sec-bg: #f2f2ff; --sec-border: #c4c5f1; --sec-light: #d8d9f7; }
 
 /* Category / subcategory / subitem headers */
 .ri-category {
