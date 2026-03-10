@@ -38,6 +38,39 @@ def sanitize_filename(title: str) -> str:
     return name
 
 
+_BLOCK_PRINT_SCRIPT = "window.print = function() { /* blocked by crawler */ };"
+
+# Track the CDP script identifier so we can remove it later
+_cdp_script_id: str | None = None
+
+
+def _block_print_dialog(driver):
+    """Inject script via CDP to block window.print() on all future page loads."""
+    global _cdp_script_id
+    try:
+        result = driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": _BLOCK_PRINT_SCRIPT},
+        )
+        _cdp_script_id = result.get("identifier")
+    except Exception:
+        pass
+
+
+def _unblock_print_dialog(driver):
+    """Remove the injected print-blocking script."""
+    global _cdp_script_id
+    if _cdp_script_id:
+        try:
+            driver.execute_cdp_cmd(
+                "Page.removeScriptToEvaluateOnNewDocument",
+                {"identifier": _cdp_script_id},
+            )
+        except Exception:
+            pass
+        _cdp_script_id = None
+
+
 def _navigate_to_print_page(driver, article_url: str) -> bool:
     """Try to navigate to the print-friendly version of the article.
 
@@ -63,14 +96,20 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 import re as _re
                 print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
             try:
+                # Block window.print() BEFORE navigating — print pages auto-call it
+                # which opens edge://print/ and blocks for ~22 seconds
+                _block_print_dialog(driver)
                 driver.get(print_url)
                 time.sleep(0.5)
+                # Clean up: remove the injected script so it doesn't affect other pages
+                _unblock_print_dialog(driver)
                 if not _is_error_page_simple(driver):
                     return True
                 # Error page — go back to article
                 driver.get(article_url)
                 time.sleep(0.5)
             except Exception:
+                _unblock_print_dialog(driver)
                 driver.get(article_url)
                 time.sleep(0.5)
             # URL replacement tried — skip button clicking for known sites
@@ -178,10 +217,18 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
     result = ArticleWithContent(info=article)
     original_window = driver.current_window_handle
 
+    # Clean up stale popup windows from previous articles
+    if len(driver.window_handles) > 1:
+        _close_extra_windows(driver, original_window)
+
     try:
         driver.set_page_load_timeout(settings.CRAWL_TIMEOUT_MS / 1000)
+        # Block window.print() before any page navigation to prevent
+        # edge://print/ popup that blocks for ~22 seconds
+        _block_print_dialog(driver)
         driver.get(article.url)
         time.sleep(0.5)
+        _unblock_print_dialog(driver)
 
         # Extract article content
         content_selectors = [
