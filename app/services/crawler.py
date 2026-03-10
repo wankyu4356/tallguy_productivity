@@ -465,8 +465,17 @@ def _parse_datetime(date_str: str) -> datetime | None:
 
 
 def _make_article_id(url: str, title: str) -> str:
-    """Generate a stable ID for an article."""
-    raw = f"{url}:{title}"
+    """Generate a stable ID for an article based on its unique key in the URL."""
+    # Extract TheBell article key from URL (e.g., sn=12345 or key=20260309...)
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url)
+    params = urllib.parse.parse_qs(parsed.query)
+    # TheBell uses 'sn' or 'key' as article identifiers
+    article_key = params.get("sn", params.get("key", params.get("SN", params.get("KEY", [""]))))[0]
+    if article_key:
+        return hashlib.md5(article_key.encode()).hexdigest()[:12]
+    # Fallback: use URL path + title
+    raw = f"{parsed.path}:{title}"
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
@@ -1066,6 +1075,7 @@ async def crawl_all_categories(
         driver = context.driver
         all_articles: list[ArticleInfo] = []
         seen_ids = set()
+        seen_titles = set()
 
         for label, code in SECTION_CODES:
             if on_progress:
@@ -1078,8 +1088,11 @@ async def crawl_all_categories(
 
             articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
             for a in articles:
-                if a.id not in seen_ids:
+                # Deduplicate by ID and by title
+                title_key = a.title.strip()
+                if a.id not in seen_ids and title_key not in seen_titles:
                     seen_ids.add(a.id)
+                    seen_titles.add(title_key)
                     all_articles.append(a)
 
         if len(all_articles) == 0:
