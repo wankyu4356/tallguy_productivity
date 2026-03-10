@@ -68,9 +68,9 @@ function renderTree(tree) {
         // Count articles in this category
         let catArticleCount = (cat.articles || []).length;
 
-        // Direct articles under category
-        if (cat.articles && cat.articles.length > 0) {
-            const list = createSortableList(cat.articles);
+        // Direct articles under category (always create list for drop target)
+        if (!cat.subcategories || cat.subcategories.length === 0) {
+            const list = createSortableList(cat.articles || []);
             catCard.appendChild(list);
         }
 
@@ -83,13 +83,7 @@ function renderTree(tree) {
                 subHeader.textContent = `${String.fromCharCode(65 + subIdx)}. ${sub.name}`;
                 subSection.appendChild(subHeader);
 
-                if (sub.articles && sub.articles.length > 0) {
-                    catArticleCount += sub.articles.length;
-                    const list = createSortableList(sub.articles);
-                    subSection.appendChild(list);
-                }
-
-                if (sub.sub_items) {
+                if (sub.sub_items && sub.sub_items.length > 0) {
                     sub.sub_items.forEach(si => {
                         const siSection = document.createElement('div');
                         siSection.className = 'ri-subitem';
@@ -99,15 +93,18 @@ function renderTree(tree) {
                         siHeader.textContent = `- ${si.name}`;
                         siSection.appendChild(siHeader);
 
-                        if (si.articles && si.articles.length > 0) {
-                            catArticleCount += si.articles.length;
-                            const list = createSortableList(si.articles);
-                            siSection.appendChild(list);
-                        }
+                        catArticleCount += (si.articles || []).length;
+                        const list = createSortableList(si.articles || []);
+                        siSection.appendChild(list);
 
                         subSection.appendChild(siSection);
                     });
                 }
+
+                // Direct articles under subcategory (always create list for drop target)
+                catArticleCount += (sub.articles || []).length;
+                const subList = createSortableList(sub.articles || []);
+                subSection.appendChild(subList);
 
                 catCard.appendChild(subSection);
             });
