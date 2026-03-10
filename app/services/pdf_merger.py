@@ -41,14 +41,21 @@ def _register_fonts() -> tuple[str, str]:
     if _FONTS_REGISTERED:
         return "KFont", "KFontBold"
 
+    # Bundled fonts directory (ships with the app — always available)
+    _BUNDLED = Path(__file__).resolve().parent.parent / "static" / "fonts"
+
     font_configs = [
-        # 새굴림 (New Gulim) — user-specified font; Windows-only, may be copied here
+        # --- Bundled fonts (guaranteed to exist) ---
+        (str(_BUNDLED / "NanumBarunGothic.ttf"),
+         str(_BUNDLED / "NanumBarunGothicBold.ttf"), None),
+        (str(_BUNDLED / "NanumGothic.ttf"),
+         str(_BUNDLED / "NanumGothicBold.ttf"), None),
+        # --- System fonts (fallbacks) ---
+        # 새굴림 (New Gulim) — Windows-only, may be manually installed
         ("/usr/share/fonts/truetype/gulim/NewGulim.ttf",
          "/usr/share/fonts/truetype/gulim/NewGulim.ttf", None),
-        # NanumBarunGothic — closest Linux substitute for 새굴림 (rounded gothic)
         ("/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
          "/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf", None),
-        # Fallback to NanumGothic (sans-serif)
         ("/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
          "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf", None),
         # Noto CJK variants
@@ -120,25 +127,38 @@ class _TOCLine(Flowable):
 
         c.setFont(fn, fs)
 
-        # Measure title and page number widths
+        # Measure page number width
         page_str = str(self.page_num)
         page_w = c.stringWidth(page_str, fn, fs)
-        title_w = c.stringWidth(self.title, fn, fs)
+
+        # Reserve space: page number + minimum dot leader area
+        dot = "\u00B7"  # middle dot (·)
+        dot_unit_w = c.stringWidth(dot + " ", fn, fs)
+        min_dots_w = dot_unit_w * 5  # at least 5 dots
+        max_title_w = self.width - page_w - min_dots_w - 8  # 8px padding
+
+        # Truncate title if it exceeds max width
+        title = self.title
+        title_w = c.stringWidth(title, fn, fs)
+        if title_w > max_title_w:
+            ellipsis = "…"
+            while title and c.stringWidth(title + ellipsis, fn, fs) > max_title_w:
+                title = title[:-1]
+            title = title.rstrip() + ellipsis
+            title_w = c.stringWidth(title, fn, fs)
 
         # Draw title (left-aligned)
-        c.drawString(0, 2, self.title)
+        c.drawString(0, 2, title)
 
         # Draw page number (right-aligned)
         c.drawRightString(self.width, 2, page_str)
 
         # Fill the gap with dots
-        dot = "\u00B7"  # middle dot (·)
-        dot_w = c.stringWidth(dot + " ", fn, fs)
         gap_start = title_w + 4
         gap_end = self.width - page_w - 4
 
-        if gap_end > gap_start and dot_w > 0:
-            num_dots = int((gap_end - gap_start) / dot_w)
+        if gap_end > gap_start and dot_unit_w > 0:
+            num_dots = int((gap_end - gap_start) / dot_unit_w)
             dots = (dot + " ") * num_dots
             c.drawString(gap_start, 2, dots)
 
