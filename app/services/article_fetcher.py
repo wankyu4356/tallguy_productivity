@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
 
 from app.config import settings
 from app.models.schemas import ArticleInfo, ArticleWithContent
@@ -42,13 +42,48 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
     """Try to navigate to the print-friendly version of the article.
 
     Strategy:
-    1. Click print button on the page (handles JS popups)
-    2. Try URL manipulation (newsview → NewsPrint, ArticleView → ArticlePrint)
+    1. Try URL manipulation first (safest — no side effects)
+    2. Click print button on the page (handles JS popups)
     3. Return False if no print page found
     """
     original_window = driver.current_window_handle
 
-    # Strategy 1: Find and click print button (handles onclick popups)
+    # Strategy 1: URL manipulation for TheBell (safest — try first)
+    url_replacements = [
+        ("newsview.asp", "NewsPrint.asp"),
+        ("NewsView.asp", "NewsPrint.asp"),
+        ("newsView.asp", "NewsPrint.asp"),
+        ("ArticleView.asp", "ArticlePrint.asp"),
+    ]
+    for old, new in url_replacements:
+        if old.lower() in article_url.lower():
+            print_url = article_url.replace(old, new)
+            # case-insensitive replacement fallback
+            if print_url == article_url:
+                import re as _re
+                print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
+            try:
+                driver.get(print_url)
+                time.sleep(1.5)
+                if not _is_error_page_simple(driver):
+                    logger.info(f"프린트 URL 직접 접근 | url={print_url}")
+                    return True
+                # Error page — go back to article
+                driver.get(article_url)
+                time.sleep(1)
+            except Exception:
+                driver.get(article_url)
+                time.sleep(1)
+            break
+
+    # Strategy 2: Find and click print button (handles onclick popups)
+    # First, override window.print() to prevent native print dialog
+    # which opens edge://print/ and kills the browser session
+    try:
+        driver.execute_script("window.print = function() {};")
+    except Exception:
+        pass
+
     print_selectors = [
         (By.CSS_SELECTOR, '.btn_print'),
         (By.CSS_SELECTOR, '#btn_print'),
@@ -80,7 +115,22 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 new_window = [w for w in all_windows if w != original_window][0]
                 driver.switch_to.window(new_window)
                 time.sleep(1)
-                logger.info(f"프린트 팝업 감지 | url={driver.current_url}")
+
+                # Check for browser-internal pages (edge://print, chrome://print)
+                # These will crash the session if we try CDP commands on them
+                try:
+                    current_url = driver.current_url
+                except Exception:
+                    # Session may already be damaged — close and abort
+                    _close_extra_windows(driver, original_window)
+                    return False
+
+                if current_url.startswith(("edge://", "chrome://", "about:")):
+                    logger.warning(f"브라우저 내부 페이지 감지, 닫기 | url={current_url}")
+                    _close_extra_windows(driver, original_window)
+                    return False
+
+                logger.info(f"프린트 팝업 감지 | url={current_url}")
                 return True
 
             # Check if current page changed to a print page
@@ -90,34 +140,6 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
 
         except Exception:
             continue
-
-    # Strategy 2: URL manipulation for TheBell
-    url_replacements = [
-        ("newsview.asp", "NewsPrint.asp"),
-        ("NewsView.asp", "NewsPrint.asp"),
-        ("newsView.asp", "NewsPrint.asp"),
-        ("ArticleView.asp", "ArticlePrint.asp"),
-    ]
-    for old, new in url_replacements:
-        if old.lower() in article_url.lower():
-            print_url = article_url.replace(old, new)
-            # case-insensitive replacement fallback
-            if print_url == article_url:
-                import re as _re
-                print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
-            try:
-                driver.get(print_url)
-                time.sleep(1.5)
-                if not _is_error_page_simple(driver):
-                    logger.info(f"프린트 URL 직접 접근 | url={print_url}")
-                    return True
-                # Error page — go back to article
-                driver.get(article_url)
-                time.sleep(1)
-            except Exception:
-                driver.get(article_url)
-                time.sleep(1)
-            break
 
     return False
 
@@ -201,8 +223,20 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         # Clean up: close popup windows and return to original window
         _close_extra_windows(driver, original_window)
 
+    except InvalidSessionIdException:
+        # Browser session is dead — cannot continue fetching any articles
+        logger.error(f"브라우저 세션 사망 — 기사 수집 중단 | {article.title}")
+        raise
     except TimeoutException:
         logger.error(f"Timeout fetching article: {article.title}")
+        _close_extra_windows(driver, original_window)
+    except WebDriverException as e:
+        # Check for session-death indicators in other WebDriver exceptions
+        err_msg = str(e).lower()
+        if "invalid session" in err_msg or "disconnected" in err_msg or "session deleted" in err_msg:
+            logger.error(f"브라우저 세션 사망 — 기사 수집 중단 | {article.title}")
+            raise
+        logger.error(f"Error fetching article '{article.title}': {e}", exc_info=True)
         _close_extra_windows(driver, original_window)
     except Exception as e:
         logger.error(f"Error fetching article '{article.title}': {e}", exc_info=True)
@@ -222,8 +256,19 @@ def _fetch_articles_sync(
     for i, article in enumerate(articles):
         if on_progress:
             on_progress(f"기사 수집 중: {i + 1}/{len(articles)} - {article.title[:30]}...")
-        result = _fetch_article_sync(driver, article, output_dir)
-        results.append(result)
+        try:
+            result = _fetch_article_sync(driver, article, output_dir)
+            results.append(result)
+        except (InvalidSessionIdException, WebDriverException):
+            # Browser session is dead — return what we have so far
+            logger.error(
+                f"브라우저 세션 사망 — {len(results)}/{len(articles)}개 수집 후 중단"
+            )
+            if on_progress:
+                on_progress(
+                    f"⚠ 브라우저 오류로 중단: {len(results)}/{len(articles)}개만 수집됨"
+                )
+            break
     return results
 
 
