@@ -106,6 +106,9 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 continue
 
             el = els[0]
+            onclick = el.get_attribute("onclick") or ""
+            href = el.get_attribute("href") or ""
+            logger.debug(f"프린트 버튼 클릭 시도 | selector={sel} | onclick={onclick[:80]} | href={href[:80]}")
             el.click()
             time.sleep(1.5)
 
@@ -156,6 +159,17 @@ def _is_error_page_simple(driver) -> bool:
     except Exception:
         pass
     return False
+
+
+def _log_browser_state(driver, context: str):
+    """Log current browser state for troubleshooting."""
+    try:
+        url = driver.current_url
+        title = driver.title[:60]
+        windows = len(driver.window_handles)
+        logger.error(f"[브라우저 상태] {context} | url={url} | title={title} | windows={windows}")
+    except Exception:
+        logger.error(f"[브라우저 상태] {context} | 브라우저 응답 불가 (세션 사망 가능)")
 
 
 def _close_extra_windows(driver, keep_window: str):
@@ -209,9 +223,10 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
 
         used_print_page = _navigate_to_print_page(driver, article.url)
         if used_print_page:
-            logger.info(f"프린트 페이지에서 PDF 생성: {article.title[:40]}")
+            logger.debug(f"프린트 페이지에서 PDF 생성 | url={driver.current_url} | article={article.title[:40]}")
 
         # Generate PDF using Chrome DevTools Protocol
+        logger.debug(f"CDP printToPDF 호출 | url={driver.current_url} | windows={len(driver.window_handles)}")
         pdf_result = driver.execute_cdp_cmd("Page.printToPDF", PDF_PARAMS)
         pdf_data = base64.b64decode(pdf_result["data"])
         with open(pdf_path, "wb") as f:
@@ -223,23 +238,44 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         # Clean up: close popup windows and return to original window
         _close_extra_windows(driver, original_window)
 
-    except InvalidSessionIdException:
+    except InvalidSessionIdException as e:
         # Browser session is dead — cannot continue fetching any articles
-        logger.error(f"브라우저 세션 사망 — 기사 수집 중단 | {article.title}")
+        _log_browser_state(driver, "InvalidSessionId")
+        logger.error(
+            f"브라우저 세션 사망 | article={article.title[:50]} | url={article.url} | {e}",
+            exc_info=True,
+        )
         raise
-    except TimeoutException:
-        logger.error(f"Timeout fetching article: {article.title}")
+    except TimeoutException as e:
+        _log_browser_state(driver, "Timeout")
+        logger.error(
+            f"페이지 로드 타임아웃 | article={article.title[:50]} | "
+            f"url={article.url} | timeout={settings.CRAWL_TIMEOUT_MS}ms",
+            exc_info=True,
+        )
         _close_extra_windows(driver, original_window)
     except WebDriverException as e:
-        # Check for session-death indicators in other WebDriver exceptions
         err_msg = str(e).lower()
-        if "invalid session" in err_msg or "disconnected" in err_msg or "session deleted" in err_msg:
-            logger.error(f"브라우저 세션 사망 — 기사 수집 중단 | {article.title}")
+        is_session_dead = (
+            "invalid session" in err_msg
+            or "disconnected" in err_msg
+            or "session deleted" in err_msg
+        )
+        _log_browser_state(driver, "SessionDeath" if is_session_dead else "WebDriverError")
+        logger.error(
+            f"WebDriver 오류 | article={article.title[:50]} | url={article.url} | "
+            f"session_dead={is_session_dead}",
+            exc_info=True,
+        )
+        if is_session_dead:
             raise
-        logger.error(f"Error fetching article '{article.title}': {e}", exc_info=True)
         _close_extra_windows(driver, original_window)
     except Exception as e:
-        logger.error(f"Error fetching article '{article.title}': {e}", exc_info=True)
+        logger.error(
+            f"기사 수집 오류 | article={article.title[:50]} | url={article.url} | "
+            f"type={type(e).__name__}",
+            exc_info=True,
+        )
         _close_extra_windows(driver, original_window)
 
     return result
@@ -253,22 +289,40 @@ def _fetch_articles_sync(
 ) -> list[ArticleWithContent]:
     """Fetch multiple articles sequentially (synchronous)."""
     results = []
+    pdf_ok = 0
+    pdf_fail = 0
+    start_time = time.time()
     for i, article in enumerate(articles):
         if on_progress:
             on_progress(f"기사 수집 중: {i + 1}/{len(articles)} - {article.title[:30]}...")
         try:
             result = _fetch_article_sync(driver, article, output_dir)
             results.append(result)
-        except (InvalidSessionIdException, WebDriverException):
-            # Browser session is dead — return what we have so far
+            if result.pdf_path:
+                pdf_ok += 1
+            else:
+                pdf_fail += 1
+        except (InvalidSessionIdException, WebDriverException) as e:
+            elapsed = time.time() - start_time
             logger.error(
-                f"브라우저 세션 사망 — {len(results)}/{len(articles)}개 수집 후 중단"
+                f"브라우저 세션 사망 — 수집 중단 | "
+                f"완료={len(results)}/{len(articles)} | "
+                f"PDF성공={pdf_ok} PDF실패={pdf_fail} | "
+                f"실패기사={article.title[:40]} | "
+                f"경과={elapsed:.1f}초 | "
+                f"error={type(e).__name__}"
             )
             if on_progress:
                 on_progress(
                     f"⚠ 브라우저 오류로 중단: {len(results)}/{len(articles)}개만 수집됨"
                 )
             break
+
+    elapsed = time.time() - start_time
+    logger.info(
+        f"기사 수집 완료 | {len(results)}/{len(articles)}개 | "
+        f"PDF성공={pdf_ok} PDF실패={pdf_fail} | {elapsed:.1f}초"
+    )
     return results
 
 

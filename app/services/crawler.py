@@ -1022,15 +1022,22 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
                 or "unable to receive message from renderer" in err_msg
             )
             if is_session_dead or consecutive_errors >= 3:
+                idx = needs_detail.index(a) if a in needs_detail else -1
                 logger.warning(
-                    f"상세정보 수집 중단: 브라우저 문제 | "
-                    f"날짜 {date_fetched}개 추출 완료 | {e}"
+                    f"상세정보 수집 중단 | reason={'session_dead' if is_session_dead else f'consecutive_errors={consecutive_errors}'} | "
+                    f"진행={idx + 1}/{len(needs_detail)} | "
+                    f"날짜추출={date_fetched}개 | article={a.title[:40]} | "
+                    f"url={a.url} | error={type(e).__name__}: {str(e)[:200]}"
                 )
                 break
-            logger.debug(f"상세정보 추출 실패: {a.title[:30]} | {e}")
+            logger.debug(f"상세정보 추출 실패: {a.title[:30]} | url={a.url} | {type(e).__name__}: {e}")
             continue
 
-    logger.info(f"상세정보 보완 완료: 날짜 {date_fetched}개, 요약 {summary_fetched}개 성공 (시간 미포함: {no_time_count}개)")
+    logger.info(
+        f"상세정보 보완 완료 | 대상={len(needs_detail)}개 | "
+        f"날짜추출={date_fetched}개 | 요약추출={summary_fetched}개 | 시간미포함={no_time_count}개 | "
+        f"연속에러={consecutive_errors}"
+    )
     if on_progress:
         on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출")
 
@@ -1196,5 +1203,10 @@ async def crawl_all_categories(
     try:
         return await asyncio.to_thread(_crawl_sync)
     except Exception as e:
-        logger.error(f"크롤링 오류: {e}", exc_info=True)
+        logger.error(
+            f"크롤링 치명적 오류 | type={type(e).__name__} | "
+            f"date_range={date_from.strftime('%Y-%m-%d')}~{date_to.strftime('%Y-%m-%d')} | "
+            f"categories={len(SECTION_CODES)}개",
+            exc_info=True,
+        )
         return []
