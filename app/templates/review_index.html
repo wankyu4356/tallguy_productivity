@@ -57,7 +57,7 @@ function renderTree(tree) {
     tree.forEach((cat, catIdx) => {
         const catId = `cat-${catIdx}`;
         const catCard = document.createElement('div');
-        catCard.className = 'card ri-category';
+        catCard.className = `card ri-category ri-theme-${catIdx % 8}`;
         catCard.id = catId;
         catCard.dataset.catIdx = catIdx;
 
@@ -117,7 +117,7 @@ function renderTree(tree) {
 
         // Nav button
         const navBtn = document.createElement('a');
-        navBtn.className = 'ri-nav-btn';
+        navBtn.className = `ri-nav-btn ri-theme-${catIdx % 8}`;
         navBtn.href = `#${catId}`;
         navBtn.innerHTML = `${cat.name}<span class="ri-nav-count">${catArticleCount}</span>`;
         navBtn.addEventListener('click', (e) => {
@@ -174,7 +174,7 @@ function createArticleItem(art, idx) {
 
     item.innerHTML = `
         <div class="ri-drag-handle" title="드래그하여 이동">
-            <svg viewBox="0 0 20 20" fill="currentColor">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
                 <path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm0 6a2 2 0 10.001 4.001A2 2 0 007 8zm0 6a2 2 0 10.001 4.001A2 2 0 007 14zm6-8a2 2 0 10-.001-4.001A2 2 0 0013 6zm0 2a2 2 0 10.001 4.001A2 2 0 0013 8zm0 6a2 2 0 10.001 4.001A2 2 0 0013 14z"/>
             </svg>
         </div>
