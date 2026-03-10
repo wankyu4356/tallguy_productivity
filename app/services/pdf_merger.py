@@ -326,23 +326,12 @@ def _build_index_pdf(
                             )
                             _add_article_entries(si.articles)
                             emitted_ids.update(si.articles)
-                    else:
+                    if sub.articles:
                         _add_article_entries(sub.articles)
                         emitted_ids.update(sub.articles)
-            else:
-                # Category with direct articles (e.g., Fundraising)
+            if cat.articles:
                 _add_article_entries(cat.articles)
                 emitted_ids.update(cat.articles)
-
-        # Any articles not captured by classification
-        remaining = [
-            a for a in ordered_articles if a.info.id not in emitted_ids
-        ]
-        if remaining:
-            elements.append(
-                Paragraph(f"{len(classification.categories) + 1}. 기타", cat_style)
-            )
-            _add_article_entries([a.info.id for a in remaining])
     else:
         # No classification — flat list fallback
         for a in ordered_articles:
@@ -433,9 +422,9 @@ def merge_pdfs(
                     if sub.sub_items:
                         for si in sub.sub_items:
                             ids.extend(si.articles)
-                    else:
+                    if sub.articles:
                         ids.extend(sub.articles)
-            else:
+            if cat.articles:
                 ids.extend(cat.articles)
         return ids
 
