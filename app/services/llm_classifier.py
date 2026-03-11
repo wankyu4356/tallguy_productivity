@@ -259,35 +259,8 @@ article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록
     except Exception as e:
         logger.error(f"LLM classification failed: {e}", exc_info=True)
 
-    # Fallback: put all in order as-is
-    return ClassifiedOutput(
-        article_order=[a.info.id for a in articles],
-        categories=[
-            ClassificationCategory(
-                name="Deal",
-                subcategories=[
-                    ClassificationSubcategory(name="경영권 인수 및 매각, 투자 유치"),
-                    ClassificationSubcategory(name="투자회수"),
-                    ClassificationSubcategory(name="기타"),
-                ],
-            ),
-            ClassificationCategory(
-                name="Industry",
-                subcategories=[
-                    ClassificationSubcategory(
-                        name="E&F 포트폴리오 관련 산업 업계 동향",
-                        sub_items=[
-                            ClassificationSubItem(name="환경/폐기물"),
-                            ClassificationSubItem(name="건설/부동산"),
-                            ClassificationSubItem(name="바이오/헬스케어"),
-                        ],
-                    ),
-                    ClassificationSubcategory(name="기타 주요 산업 관련 업계 동향"),
-                ],
-            ),
-            ClassificationCategory(name="Fundraising, LP 이슈 및 GP 선정"),
-        ],
-    )
+    # Fallback: distribute articles by their original crawler category
+    return _fallback_classification(articles)
 
 
 def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> ClassifiedOutput:
@@ -349,13 +322,111 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
         ),
     ]
 
-    # Ensure all article IDs are in article_order
+    # Ensure all article IDs are in article_order and placed in a category
     all_ids = {a.info.id for a in articles}
     ordered_ids = [aid for aid in article_order if aid in all_ids]
     missing = all_ids - set(ordered_ids)
     ordered_ids.extend(missing)
 
+    # Find articles not placed in any category and add them to Deal > 기타
+    placed_ids = set()
+    for cat in categories:
+        placed_ids.update(cat.articles)
+        for sub in cat.subcategories:
+            placed_ids.update(sub.articles)
+            for si in sub.sub_items:
+                placed_ids.update(si.articles)
+    # Filter to only valid IDs
+    placed_ids = placed_ids & all_ids
+    unplaced = [aid for aid in ordered_ids if aid not in placed_ids]
+    if unplaced:
+        logger.warning(f"LLM classification missed {len(unplaced)} articles, adding to Deal > 기타")
+        # Add to Deal > 기타 (index 0, subcategory index 2)
+        categories[0].subcategories[2].articles.extend(unplaced)
+
+    # Also filter out invalid IDs from classification
+    for cat in categories:
+        cat.articles = [aid for aid in cat.articles if aid in all_ids]
+        for sub in cat.subcategories:
+            sub.articles = [aid for aid in sub.articles if aid in all_ids]
+            for si in sub.sub_items:
+                si.articles = [aid for aid in si.articles if aid in all_ids]
+
     return ClassifiedOutput(categories=categories, article_order=ordered_ids)
+
+
+def _fallback_classification(articles: list[ArticleWithContent]) -> ClassifiedOutput:
+    """Distribute articles by their original crawler categories when LLM fails."""
+    # Buckets for distribution
+    deal_ids = []
+    industry_env = []
+    industry_construction = []
+    industry_bio = []
+    industry_etc = []
+    fundraising_ids = []
+
+    for a in articles:
+        aid = a.info.id
+        subcat = a.info.subcategory.lower() if a.info.subcategory else ""
+        cat = a.info.category.lower() if a.info.category else ""
+
+        if "deal" in cat:
+            deal_ids.append(aid)
+        elif "finance" in cat or "invest" in cat:
+            fundraising_ids.append(aid)
+        elif "industry" in cat:
+            if "헬스" in subcat or "바이오" in subcat:
+                industry_bio.append(aid)
+            elif "건설" in subcat or "부동산" in subcat:
+                industry_construction.append(aid)
+            elif "중소기업" in subcat:
+                industry_etc.append(aid)
+            elif "환경" in subcat or "폐기물" in subcat:
+                industry_env.append(aid)
+            else:
+                industry_etc.append(aid)
+        else:
+            deal_ids.append(aid)
+
+    categories = [
+        ClassificationCategory(
+            name="Deal",
+            subcategories=[
+                ClassificationSubcategory(
+                    name="경영권 인수 및 매각, 투자 유치",
+                    articles=deal_ids,
+                ),
+                ClassificationSubcategory(name="투자회수"),
+                ClassificationSubcategory(name="기타"),
+            ],
+        ),
+        ClassificationCategory(
+            name="Industry",
+            subcategories=[
+                ClassificationSubcategory(
+                    name="E&F 포트폴리오 관련 산업 업계 동향",
+                    sub_items=[
+                        ClassificationSubItem(name="환경/폐기물", articles=industry_env),
+                        ClassificationSubItem(name="건설/부동산", articles=industry_construction),
+                        ClassificationSubItem(name="바이오/헬스케어", articles=industry_bio),
+                    ],
+                ),
+                ClassificationSubcategory(
+                    name="기타 주요 산업 관련 업계 동향",
+                    articles=industry_etc,
+                ),
+            ],
+        ),
+        ClassificationCategory(
+            name="Fundraising, LP 이슈 및 GP 선정",
+            articles=fundraising_ids,
+        ),
+    ]
+
+    return ClassifiedOutput(
+        categories=categories,
+        article_order=[a.info.id for a in articles],
+    )
 
 
 def _extract_json(text: str) -> str | None:
