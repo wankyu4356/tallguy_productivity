@@ -485,13 +485,25 @@ async def review_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # Group articles by crawler's original category
+    # Group articles by crawler's original category, in SECTION_CODES order
+    from app.services.crawler import SECTION_CODES
+    _section_order = [label for label, _ in SECTION_CODES]
+
     categories = {}
     for a in session.articles:
         cat = a.subcategory or a.category
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(a)
+
+    # Sort categories by SECTION_CODES order; unknown categories go last
+    def _cat_sort_key(cat_name):
+        try:
+            return _section_order.index(cat_name)
+        except ValueError:
+            return len(_section_order)
+
+    categories = dict(sorted(categories.items(), key=lambda x: _cat_sort_key(x[0])))
 
     # Build recommendation map
     rec_map = {r.article_id: r for r in session.recommendations}
