@@ -845,20 +845,38 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                     except Exception:
                         pass
 
-                    # Use per-article category if found, otherwise fall back to section label
+                    # If per-article category was extracted, check if it belongs
+                    # to one of our target sections. Skip irrelevant articles
+                    # (e.g., "테크", "문화콘텐츠", "보험" on Industry pages).
                     if article_cat:
-                        final_category = article_cat.split(" - ")[0] if " - " in article_cat else article_cat
-                        final_subcategory = article_cat
-                    else:
-                        final_category = category_label.split(" - ")[0] if " - " in category_label else category_label
-                        final_subcategory = category_label
+                        _ALLOWED_CATS = {label for label, _ in SECTION_CODES}
+                        # Also allow short forms that match section suffixes
+                        # e.g., "중소기업" matches "Industry - 중소기업"
+                        _ALLOWED_SHORT = set()
+                        for label, _ in SECTION_CODES:
+                            if " - " in label:
+                                _ALLOWED_SHORT.add(label.split(" - ", 1)[1])
+                            _ALLOWED_SHORT.add(label)
 
+                        cat_match = (
+                            article_cat in _ALLOWED_CATS
+                            or article_cat in _ALLOWED_SHORT
+                        )
+                        if not cat_match:
+                            # This article belongs to a category we don't want
+                            logger.debug(
+                                f"카테고리 필터: '{article_cat}' 제외 | "
+                                f"section={category_label} | title={title[:40]}"
+                            )
+                            continue
+
+                    # Always use the section-level category label
                     article = ArticleInfo(
                         id=_make_article_id(href, title),
                         title=title,
                         url=href,
-                        category=final_category,
-                        subcategory=final_subcategory,
+                        category=category_label.split(" - ")[0] if " - " in category_label else category_label,
+                        subcategory=category_label,
                         published_at=published_at,
                         summary=summary[:200] if summary else "",
                     )
@@ -1095,13 +1113,12 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
                 except Exception:
                     pass
 
-            # Extract actual category from detail page
+            # Extract actual category from detail page (for logging/verification only)
             try:
                 cat_text = driver.execute_script(category_script)
                 if cat_text and len(cat_text) >= 2:
-                    a.subcategory = cat_text
-                    a.category = cat_text.split(" - ")[0] if " - " in cat_text else cat_text
                     category_fetched += 1
+                    logger.debug(f"상세페이지 카테고리: '{cat_text}' | 기존: '{a.subcategory}' | {a.title[:40]}")
             except Exception:
                 pass
 
