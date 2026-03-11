@@ -330,9 +330,25 @@ async def get_classification(session_id: str):
 
     articles_map = {a.info.id: a for a in session.articles_with_content}
 
+    # Debug: log classification state
+    total_classified = 0
+    for cat in session.classification.categories:
+        total_classified += len(cat.articles)
+        for sub in cat.subcategories:
+            total_classified += len(sub.articles)
+            for si in sub.sub_items:
+                total_classified += len(si.articles)
+    logger.info(
+        f"[Classification API] articles_with_content={len(session.articles_with_content)}, "
+        f"articles_map_keys={list(articles_map.keys())[:5]}, "
+        f"total_classified_ids={total_classified}, "
+        f"article_order={len(session.classification.article_order)}"
+    )
+
     def article_detail(aid: str):
         a = articles_map.get(aid)
         if not a:
+            logger.warning(f"[Classification API] article_detail: ID '{aid}' not found in articles_map")
             return None
         # Build a short summary: first 150 chars of content
         summary = a.info.summary or ""
