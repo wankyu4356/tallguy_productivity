@@ -11,7 +11,7 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFICATION_TAXONOMY = """[더벨]
+CLASSIFICATION_TAXONOMY = """[딜사이트플러스]
 1. Deal
    A. 경영권 인수 및 매각, 투자 유치
    B. 투자회수
@@ -35,51 +35,13 @@ RECOMMEND_SYSTEM_PROMPT = """당신은 한국 금융/투자 업계의 뉴스 분
 
 JSON 형식으로 응답해주세요."""
 
-CLASSIFY_SYSTEM_PROMPT = f"""당신은 E&F 프라이빗에쿼티(PE)의 시각에서 한국 금융/투자 뉴스를 분류하는 전문가입니다.
+CLASSIFY_SYSTEM_PROMPT = """당신은 E&F 프라이빗에쿼티(PE)의 시각에서 한국 금융/투자 뉴스를 분류하는 전문가입니다.
+기사의 **제목과 본문 내용**을 꼼꼼히 읽고, 기사의 핵심 주제가 무엇인지 정확히 파악한 뒤 분류하세요.
 
-다음 분류 체계에 따라 기사들을 분류하고 배치해주세요:
+⚠️ 중요: 기사에 표시된 "출처 섹션"은 딜사이트플러스 웹사이트의 원래 분류이며, 이것이 틀린 경우가 많습니다.
+출처 섹션을 참고만 하되, 반드시 기사 본문 내용을 직접 읽고 판단하세요.
 
-{CLASSIFICATION_TAXONOMY}
-
-## 분류 규칙 (반드시 준수)
-
-1. **IB하우스/증권사 관련 기사** → Deal > 기타
-   - 주관 실적, 리그테이블, IB하우스 순위, 증권사 경쟁 등
-   - 예: "삼성증권 IB 실적 1위", "IPO 주관 경쟁 심화"
-
-2. **IPO/상장 관련 기사** → Deal > 투자회수
-   - IPO, 상장 추진, 상장 예비심사, 공모, 스팩(SPAC) 합병 등은 PE의 관점에서 투자회수(Exit) 수단
-   - "상장"이라는 단어가 포함되면 대부분 투자회수에 해당
-   - 예: "○○기업 IPO 추진", "코스닥 상장 준비", "상장 추진 본격화", "상장 예비심사 청구", "공모주 시장", "스팩 합병 상장"
-
-3. **CB(전환사채), BW(신주인수권부사채), 채권 발행** → Deal > 경영권 인수 및 매각, 투자 유치
-   - 자금 조달/투자 유치의 일환
-   - 예: "300억 CB 조달", "메자닌 투자", "BW 발행"
-
-4. **PF(프로젝트 파이낸싱)** → Industry > E&F 포트폴리오 관련 산업 업계 동향 > 건설/부동산
-   - PF는 건설/부동산 관련
-   - 예: "부동산 PF 리스크", "PF 구조조정"
-
-5. 위 4가지 규칙에 해당하지 않는 기사는, 기사 내용을 꼼꼼히 읽고 가장 적합한 카테고리에 분류하세요.
-   분류 판단 시 논거를 탄탄하게 세워야 합니다:
-   - 기사의 핵심 주제가 무엇인지
-   - E&F PE 관점에서 어떤 카테고리와 가장 관련이 깊은지
-   - 경계선 상의 기사는 PE 투자/운용 관점에서 더 의미 있는 쪽으로 배치
-
-## 정렬 규칙
-
-**각 카테고리 내에서, 그리고 전체 article_order에서도, E&F PE의 중대성/중요성 관점에서
-중요한 순으로 내림차순 배열하세요.**
-
-중요도 판단 기준:
-- E&F PE 포트폴리오에 직접적 영향이 있는 기사가 최우선
-- 대형 딜, 주요 투자 회수, 핵심 산업 트렌드 > 소형 딜, 일반 산업 동향
-- 펀드레이징/GP 선정 관련 주요 이슈
-- 시장 전반에 영향을 미치는 규제/정책 변화
-
-한 기사는 하나의 카테고리에만 배치됩니다.
-
-JSON 형식으로 응답해주세요. 반드시 classification_reasoning 필드에 각 기사의 분류 이유를 간단히 적어주세요."""
+JSON 형식으로만 응답해주세요."""
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -158,26 +120,122 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
     client = _get_client()
 
     articles_text = "\n---\n".join([
-        f"[{a.info.id}] 제목: {a.info.title}\n카테고리: {a.info.subcategory}\n내용: {a.content[:1500]}"
+        f"[{a.info.id}] 제목: {a.info.title}\n출처 섹션(참고용): {a.info.subcategory}\n본문:\n{a.content[:3000]}"
         for a in articles
     ])
 
-    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+    prompt = f"""다음 기사들을 아래 분류 체계에 따라 분류해주세요.
 
-## 필수 분류 규칙 (반드시 적용):
-1. IB하우스/증권사 관련(주관 실적, 리그테이블 등) → Deal > 기타
-2. IPO 관련(상장, 공모, 코스닥/코스피 상장 등) → Deal > 투자회수
-3. CB/BW/채권 발행/메자닌 → Deal > 경영권 인수 및 매각, 투자 유치
-4. PF(프로젝트 파이낸싱) → Industry > E&F 포트폴리오 > 건설/부동산
+{CLASSIFICATION_TAXONOMY}
 
-## 중요도 정렬:
-- E&F PE 관점에서의 중대성/중요성 기준 내림차순
-- 각 카테고리 내에서도, 전체 article_order에서도 중요한 순
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 분류 규칙 (우선순위 순서대로 적용)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### 규칙 1: M&A, 인수, 매각, 투자 유치 → Deal > 경영권 인수 및 매각, 투자 유치 (acquisition_investment)
+대상: 경영권 인수/매각, 지분 인수/매각, 투자 유치, SI(전략적 투자), FI(재무적 투자),
+     CB(전환사채) 발행, BW(신주인수권부사채), 메자닌 투자, 유상증자, 자금조달,
+     구조조정/워크아웃 중 매각/투자 관련, 인수전, 매물로 나온 기업, 실사(DD) 진행,
+     SPA 체결, 우선협상대상자 선정, LOI 제출, 빅딜, 블록딜(지분 매각)
+예시:
+  ✅ "○○기업 인수전 3파전" → acquisition_investment
+  ✅ "PE, ○○지분 매각 추진" → acquisition_investment
+  ✅ "300억 CB 조달" → acquisition_investment (자금조달/투자유치)
+  ✅ "○○, 시리즈B 500억 투자유치" → acquisition_investment
+  ✅ "○○ 매각 본입찰 실시" → acquisition_investment
+  ✅ "블록딜로 지분 정리" → acquisition_investment (지분 매각)
+
+### 규칙 2: IPO, 상장, 투자회수(Exit) → Deal > 투자회수 (exit)
+대상: IPO 추진/준비, 상장 예비심사, 코스닥/코스피 상장, 공모, 스팩(SPAC) 합병,
+     PE의 투자금 회수, 세컨더리 매각(투자자 간 지분 거래로 Exit하는 경우),
+     구주매출, 오버행(상장 후 지분 매각 이슈), 보호예수 해제
+예시:
+  ✅ "○○기업 IPO 추진" → exit
+  ✅ "코스닥 상장 예비심사 청구" → exit
+  ✅ "PE, 상장으로 투자금 회수" → exit
+  ✅ "스팩 합병 상장 추진" → exit
+  ✅ "보호예수 해제 물량 출회" → exit
+
+### 규칙 3: IB/증권사 실적, 리그테이블, 주관 경쟁 → Deal > 기타 (etc)
+대상: IB하우스 순위, 주관 실적, 리그테이블, 증권사 IB 부문 실적/경쟁,
+     ECM/DCM 시장 동향(특정 딜이 아닌 시장 전체 흐름), 자문사 선임(특정 딜보다 IB 업계 관점이 중심인 경우)
+예시:
+  ✅ "삼성증권 IB 실적 1위" → etc (Deal > 기타)
+  ✅ "올해 ECM 주관 경쟁 심화" → etc (Deal > 기타)
+  ✅ "IPO 주관사 순위 변동" → etc (Deal > 기타)
+  ⚠️ 단, 특정 기업의 IPO 자체 기사("○○기업 IPO 추진")는 exit로 분류
+
+### 규칙 4: 환경/폐기물 산업 → Industry > E&F 포트폴리오 > 환경/폐기물 (environment_waste)
+대상: 폐기물 처리, 환경 규제, 탄소배출권, ESG(환경 관련), 재활용, 소각장,
+     환경오염, 매립지, 폐기물 업체 동향
+예시:
+  ✅ "폐기물 처리업체 인허가 강화" → environment_waste
+  ✅ "탄소배출권 거래 시장 동향" → environment_waste
+
+### 규칙 5: 건설/부동산/PF → Industry > E&F 포트폴리오 > 건설/부동산 (construction_realestate)
+대상: 건설사 동향, 부동산 시장, PF(프로젝트 파이낸싱), 분양, 재건축/재개발,
+     SOC(사회간접자본), 인프라 투자, 건설 수주, 부동산 개발
+예시:
+  ✅ "부동산 PF 리스크 확대" → construction_realestate
+  ✅ "○○건설 수주 실적" → construction_realestate
+  ✅ "재건축 규제 완화" → construction_realestate
+
+### 규칙 6: 바이오/헬스케어/제약 → Industry > E&F 포트폴리오 > 바이오/헬스케어 (bio_healthcare)
+대상: 제약사, 바이오텍, 헬스케어, 의료기기, 신약 개발, 기술이전(L/O),
+     임상시험, FDA/식약처 승인, 병원/의료 서비스
+예시:
+  ✅ "○○바이오 신약 임상 3상 진입" → bio_healthcare
+  ✅ "제약사 기술이전 계약" → bio_healthcare
+
+### 규칙 7: 기타 산업 동향 → Industry > 기타 주요 산업 관련 업계 동향 (industry_etc)
+대상: 위 3개 포트폴리오 산업(환경, 건설, 바이오)에 해당하지 않는 산업 동향
+     (IT, 유통, 에너지, 식품, 자동차, 금융 등 기타 산업의 업계 동향)
+예시:
+  ✅ "반도체 업황 회복세" → industry_etc
+  ✅ "유통업계 구조조정" → industry_etc
+
+### 규칙 8: 펀드레이징/LP/GP → Fundraising, LP 이슈 및 GP 선정 (fundraising)
+대상: 블라인드펀드 결성, 프로젝트펀드, LP(유한책임사원) 출자, GP(무한책임사원) 선정,
+     국민연금/공제회 등 기관투자자 출자, 펀드 클로징, 앵커 LP 확보,
+     GP 탈락/선정, 운용사 설립/인가
+예시:
+  ✅ "○○PE 1조원 블라인드펀드 결성" → fundraising
+  ✅ "국민연금 PE 출자 확대" → fundraising
+  ✅ "신규 GP 운용사 설립 러시" → fundraising
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 주의사항 (자주 틀리는 케이스)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. **"출처 섹션"을 맹신하지 마세요.** 출처가 "Deals - ECM"이어도 본문이 바이오 산업 동향이면 bio_healthcare입니다.
+2. **"Investors - PEF/VC" 섹션 기사**를 무조건 한 곳에 넣지 마세요:
+   - PE가 특정 기업을 인수/매각하는 내용 → acquisition_investment
+   - PE의 투자 회수/Exit 내용 → exit
+   - PE 펀드 결성/LP 출자 내용 → fundraising
+   - PE 업계 전반 동향 → Deal > 기타
+3. **"Investors - IB" 섹션 기사**도 마찬가지:
+   - IB 업계 전체 동향/순위 → Deal > 기타
+   - 특정 딜의 자문/주관 내용이 핵심이면 → 해당 딜의 성격에 따라 분류
+4. **제목에 "인수"가 있어도** 본문을 읽어보면 산업 동향 기사일 수 있습니다. 본문 확인 필수.
+5. **"Deals - PF" 섹션** → 대부분 construction_realestate가 맞지만, PF 관련 금융상품/구조화 기사는 Deal > 기타일 수 있습니다.
+6. **블록딜**: 투자자가 보유 지분을 장내에서 대량 매각하는 것.
+   - PE/VC가 Exit 목적이면 → exit
+   - 대주주의 지분 정리/경영권 변동이면 → acquisition_investment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 정렬 규칙
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+각 카테고리 내 + article_order 전체에서, E&F PE 중요도 내림차순.
+- E&F 포트폴리오 직접 관련 > 대형 딜 > 소형 딜 > 일반 동향
+- 한 기사는 하나의 카테고리에만 배치
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 기사들:
 {articles_text}
 
-다음 JSON 형식으로 응답해주세요:
+다음 JSON 형식으로 응답해주세요 (JSON만 출력, 다른 텍스트 없이):
 {{
   "classification": {{
     "deal": {{
@@ -195,13 +253,11 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
   }},
   "article_order": ["기사ID1", "기사ID2", ...],
   "classification_reasoning": {{
-    "기사ID": "분류 이유 (어떤 규칙 적용, 왜 이 카테고리인지)"
+    "기사ID": "적용규칙 번호 + 핵심 근거 한 줄"
   }}
 }}
 
-article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록입니다.
-분류 체계 순서(Deal → Industry → Fundraising)를 따르되,
-각 섹션 내에서는 중요도 내림차순으로 정렬하세요."""
+article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중요도 내림차순."""
 
     try:
         response = client.messages.create(
