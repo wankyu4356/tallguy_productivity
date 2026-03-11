@@ -821,12 +821,44 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                         except Exception:
                             pass
 
+                    # --- Extract per-article category from nearby elements ---
+                    article_cat = ""
+                    try:
+                        ancestor = el
+                        for _ in range(4):
+                            ancestor = ancestor.find_element(By.XPATH, "./..")
+                            # Look for category tags (common patterns on TheBeLL list pages)
+                            cat_css = (
+                                ".category, .cate, .section, .tag, "
+                                "span.cate, span.category, em.cate, "
+                                "a.cate, a.category, .news_cate, "
+                                ".label_cate, .txt_cate, .article_cate"
+                            )
+                            cat_els = ancestor.find_elements(By.CSS_SELECTOR, cat_css)
+                            for c_el in cat_els:
+                                ct = c_el.text.strip()
+                                if ct and 2 <= len(ct) <= 20 and ct != title:
+                                    article_cat = ct
+                                    break
+                            if article_cat:
+                                break
+                    except Exception:
+                        pass
+
+                    # Use per-article category if found, otherwise fall back to section label
+                    if article_cat:
+                        final_category = article_cat.split(" - ")[0] if " - " in article_cat else article_cat
+                        final_subcategory = article_cat
+                    else:
+                        final_category = category_label.split(" - ")[0] if " - " in category_label else category_label
+                        final_subcategory = category_label
+
                     article = ArticleInfo(
                         id=_make_article_id(href, title),
                         title=title,
                         url=href,
-                        category=category_label.split(" - ")[0] if " - " in category_label else category_label,
-                        subcategory=category_label,
+                        category=final_category,
+                        subcategory=final_subcategory,
                         published_at=published_at,
                         summary=summary[:200] if summary else "",
                     )
@@ -841,8 +873,8 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
 
 
 def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None) -> None:
-    """Fetch publish dates and summaries for articles missing them by visiting detail pages."""
-    # Articles needing date OR summary
+    """Fetch publish dates, summaries, and actual categories from detail pages."""
+    # Articles needing date, summary, or category verification
     needs_detail = [
         a for a in articles
         if (not a.published_at or not a.summary)
@@ -964,8 +996,52 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
     return '';
     """
 
+    # Script to extract actual category from article detail page
+    category_script = """
+    // Strategy 1: Breadcrumb navigation (most reliable)
+    var bcSelectors = [
+        '.location a', '.breadcrumb a', '.path a', 'nav.breadcrumb a',
+        '.navi a', '.gnb_sub a', '.lnb a',
+        '#location a', '.sub_nav a', '.depth a'
+    ];
+    for (var i = 0; i < bcSelectors.length; i++) {
+        var els = document.querySelectorAll(bcSelectors[i]);
+        // Usually the last breadcrumb item (before the article title) is the category
+        if (els.length >= 2) {
+            var cat = els[els.length - 1].textContent.trim();
+            if (cat && cat.length >= 2 && cat.length <= 30) return cat;
+        }
+    }
+
+    // Strategy 2: Category tag/label elements
+    var catSelectors = [
+        '.category', '.cate', '.section_tit', '.article_cate',
+        'span.cate', 'em.cate', 'a.cate', '.news_cate',
+        '.view_top .cate', '.article_info .cate',
+        '.articleView .cate', '.view_header .cate'
+    ];
+    for (var i = 0; i < catSelectors.length; i++) {
+        var el = document.querySelector(catSelectors[i]);
+        if (el) {
+            var t = el.textContent.trim();
+            if (t && t.length >= 2 && t.length <= 30) return t;
+        }
+    }
+
+    // Strategy 3: Look for location/navigation text
+    var locEl = document.querySelector('.location, #location, .breadcrumb, .path');
+    if (locEl) {
+        var text = locEl.textContent.trim();
+        // Pattern: "Home > Category > Subcategory" - extract last meaningful part
+        var parts = text.split(/[>›»\\/]/).map(function(s) { return s.trim(); }).filter(function(s) { return s && s.length >= 2 && s !== 'Home' && s !== '홈'; });
+        if (parts.length >= 1) return parts[parts.length - 1];
+    }
+    return '';
+    """
+
     date_fetched = 0
     summary_fetched = 0
+    category_fetched = 0
     no_time_count = 0
     consecutive_errors = 0
     for a in needs_detail:
@@ -1019,6 +1095,16 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
                 except Exception:
                     pass
 
+            # Extract actual category from detail page
+            try:
+                cat_text = driver.execute_script(category_script)
+                if cat_text and len(cat_text) >= 2:
+                    a.subcategory = cat_text
+                    a.category = cat_text.split(" - ")[0] if " - " in cat_text else cat_text
+                    category_fetched += 1
+            except Exception:
+                pass
+
         except Exception as e:
             consecutive_errors += 1
             err_msg = str(e).lower()
@@ -1042,11 +1128,11 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
 
     logger.info(
         f"상세정보 보완 완료 | 대상={len(needs_detail)}개 | "
-        f"날짜추출={date_fetched}개 | 요약추출={summary_fetched}개 | 시간미포함={no_time_count}개 | "
-        f"연속에러={consecutive_errors}"
+        f"날짜추출={date_fetched}개 | 요약추출={summary_fetched}개 | 카테고리추출={category_fetched}개 | "
+        f"시간미포함={no_time_count}개 | 연속에러={consecutive_errors}"
     )
     if on_progress:
-        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출")
+        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개, 카테고리 {category_fetched}개 추출")
 
     # Return to original page
     try:
