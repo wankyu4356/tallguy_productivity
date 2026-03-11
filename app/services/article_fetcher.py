@@ -114,18 +114,22 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 _unblock_print_dialog(driver)
                 driver.get(article_url)
                 time.sleep(0.5)
-            # URL replacement tried — skip button clicking for known sites
-            return False
+            # URL replacement failed — fall through to button clicking
+            logger.debug("[PrintPage] URL 치환 실패, 프린트 버튼 클릭 시도로 전환")
 
     # Strategy 2: Find and click print button on the page
-    # Override window.print() to prevent native print dialog
+    # Block window.print() on new documents (popup pages auto-call it)
+    _block_print_dialog(driver)
+    # Also override on current page in case button calls print() directly
     try:
         driver.execute_script("window.print = function() {};")
     except Exception:
         pass
 
     # Use a single fast CSS query to find any print-related element
+    # TheBell uses li.op2 > a with text "프린트" (no href/onclick, external JS binding)
     _PRINT_CSS = (
+        'li.op2 > a, '
         '.btn_print, #btn_print, a.print, '
         'a[href*="print" i], a[onclick*="print" i], '
         'button[onclick*="print" i]'
@@ -152,6 +156,7 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
 
         if not els:
             logger.warning(f"[PrintPage] 프린트 버튼 못찾음 | url={article_url}")
+            _unblock_print_dialog(driver)
             return False
 
         el = els[0]
@@ -164,16 +169,20 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
         if len(all_windows) > 1:
             new_window = [w for w in all_windows if w != original_window][0]
             driver.switch_to.window(new_window)
-            time.sleep(0.3)
+            time.sleep(0.5)
+            # Unblock print now that popup has loaded
+            _unblock_print_dialog(driver)
 
             try:
                 current_url = driver.current_url
             except Exception:
+                _unblock_print_dialog(driver)
                 _close_extra_windows(driver, original_window)
                 return False
 
             if current_url.startswith(("edge://", "chrome://", "about:")):
                 logger.warning(f"[PrintPage] 브라우저 내부 페이지 감지, 닫기 | url={current_url}")
+                _unblock_print_dialog(driver)
                 _close_extra_windows(driver, original_window)
                 return False
 
@@ -189,6 +198,7 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
     except Exception as e:
         logger.warning(f"[PrintPage] 버튼 클릭 중 예외 | {e}")
 
+    _unblock_print_dialog(driver)
     return False
 
 
