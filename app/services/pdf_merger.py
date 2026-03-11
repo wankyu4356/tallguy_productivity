@@ -363,8 +363,34 @@ _COPYRIGHT_PATTERNS = [
 ]
 
 
+def _page_has_images(page) -> bool:
+    """Return True if the page contains any images."""
+    try:
+        resources = page.get("/Resources")
+        if not resources:
+            return False
+        xobjects = resources.get("/XObject")
+        if not xobjects:
+            return False
+        xobj = xobjects.get_object()
+        for name in xobj:
+            obj = xobj[name].get_object()
+            if obj.get("/Subtype") == "/Image":
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _is_copyright_only_page(page) -> bool:
-    """Return True if the page contains only a copyright notice and no real content."""
+    """Return True if the page contains only a copyright notice and no real content.
+
+    Pages with images are always kept (even if text is copyright-only).
+    """
+    # Keep pages that have images
+    if _page_has_images(page):
+        return False
+
     try:
         text = page.extract_text() or ""
     except Exception:
@@ -372,7 +398,7 @@ def _is_copyright_only_page(page) -> bool:
 
     stripped = text.strip()
     if not stripped:
-        # Blank page — also remove
+        # Blank page with no images — remove
         return True
 
     # If the text is short and matches copyright patterns, it's junk
