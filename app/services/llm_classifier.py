@@ -148,7 +148,7 @@ async def recommend_articles(
     try:
         response = client.messages.create(
             model=settings.CLAUDE_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             system=RECOMMEND_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -158,10 +158,21 @@ async def recommend_articles(
         json_match = _extract_json(text)
         if json_match:
             data = json.loads(json_match)
-            return [
-                ArticleRecommendation(**r)
-                for r in data.get("recommendations", [])
-            ]
+            valid_ids = {a.id for a in articles}
+            results = []
+            seen_ids = set()
+            for r in data.get("recommendations", []):
+                aid = r.get("article_id", "")
+                if aid in valid_ids:
+                    results.append(ArticleRecommendation(**r))
+                    seen_ids.add(aid)
+            # Include articles the LLM missed (as not recommended)
+            for a in articles:
+                if a.id not in seen_ids:
+                    results.append(ArticleRecommendation(
+                        article_id=a.id, recommended=False, reason=""
+                    ))
+            return results
     except Exception as e:
         logger.error(f"LLM recommendation failed: {e}", exc_info=True)
 

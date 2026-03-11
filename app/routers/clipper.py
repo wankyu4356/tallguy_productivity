@@ -485,10 +485,20 @@ async def review_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # Group articles by category
+    # Group articles by PE taxonomy mapping
+    PE_CATEGORY_MAP = {
+        "Deal": "Deal",
+        "Finance": "Deal",
+        "Invest": "Deal",
+        "Industry - 헬스바이오": "Industry - 바이오/헬스케어",
+        "Industry - 건설부동산": "Industry - 건설/부동산",
+        "Industry - 중소기업": "Industry - 기타",
+        "Industry": "Industry - 기타",
+    }
     categories = {}
     for a in session.articles:
-        cat = a.subcategory or a.category
+        raw_cat = a.subcategory or a.category
+        cat = PE_CATEGORY_MAP.get(raw_cat, raw_cat)
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(a)
