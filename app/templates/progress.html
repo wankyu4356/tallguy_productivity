@@ -1,54 +1,268 @@
 {% extends "base.html" %}
-{% block title %}진행 상황 - 더벨 News Clipper{% endblock %}
+{% block title %}진행 상황 - 딜사이트플러스 News Clipper{% endblock %}
 {% block content %}
 <div class="container">
     <h1>PDF 생성 진행 상황</h1>
 
-    <div class="card">
-        <h2>현재 상태: <span id="current-status">{{ session.status.value }}</span></h2>
+    <div class="progress-layout">
+        <div class="progress-main">
+            <div class="card">
+                <h2>현재 상태: <span id="current-status">{{ session.status.value }}</span></h2>
 
-        <ul class="progress-steps" id="progress-steps">
-            <li class="progress-step step-pending" id="step-fetch">
-                <div class="step-icon">1</div>
-                <span>기사 본문 수집 및 PDF 생성</span>
-            </li>
-            <li class="progress-step step-pending" id="step-classify">
-                <div class="step-icon">2</div>
-                <span>AI 분류</span>
-            </li>
-            <li class="progress-step step-pending" id="step-merge">
-                <div class="step-icon">3</div>
-                <span>PDF 합본</span>
-            </li>
-            <li class="progress-step step-pending" id="step-docx">
-                <div class="step-icon">4</div>
-                <span>DOCX 목차 생성</span>
-            </li>
-            <li class="progress-step step-pending" id="step-zip">
-                <div class="step-icon">5</div>
-                <span>ZIP 패키징</span>
-            </li>
-        </ul>
-    </div>
+                <ul class="progress-steps" id="progress-steps">
+                    <li class="progress-step step-pending" id="step-fetch">
+                        <div class="step-icon">1</div>
+                        <span>기사 본문 수집 및 PDF 생성</span>
+                    </li>
+                    <li class="progress-step step-pending" id="step-classify">
+                        <div class="step-icon">2</div>
+                        <span>AI 분류</span>
+                    </li>
+                    <li class="progress-step step-pending" id="step-merge">
+                        <div class="step-icon">3</div>
+                        <span>PDF 합본</span>
+                    </li>
+                    <li class="progress-step step-pending" id="step-docx">
+                        <div class="step-icon">4</div>
+                        <span>DOCX 목차 생성</span>
+                    </li>
+                    <li class="progress-step step-pending" id="step-zip">
+                        <div class="step-icon">5</div>
+                        <span>ZIP 패키징</span>
+                    </li>
+                </ul>
+            </div>
 
-    <div class="card">
-        <h2>실시간 로그</h2>
-        <div class="log-area" id="log-area">
-            {% for msg in session.progress_messages %}
-            <p class="log-info">{{ msg }}</p>
-            {% endfor %}
+            <div class="card">
+                <h2>실시간 로그</h2>
+                <div class="log-area" id="log-area">
+                    {% for msg in session.progress_messages %}
+                    <p class="log-info">{{ msg }}</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div id="done-area" style="display: none; text-align: center; margin-top: 20px;">
+                <a href="/result/{{ session.session_id }}" class="btn btn-primary" style="font-size: 16px; padding: 12px 32px;">
+                    결과 확인 및 다운로드
+                </a>
+            </div>
         </div>
-    </div>
 
-    <div id="done-area" style="display: none; text-align: center; margin-top: 20px;">
-        <a href="/result/{{ session.session_id }}" class="btn btn-primary" style="font-size: 16px; padding: 12px 32px;">
-            결과 확인 및 다운로드
-        </a>
+        <div class="funfact-sidebar" id="funfact-sidebar">
+            <div class="funfact-card" id="funfact-card">
+                <div class="funfact-category" id="funfact-category"></div>
+                <div class="funfact-text" id="funfact-text"></div>
+                <div class="funfact-footer">
+                    <button class="funfact-btn" id="funfact-prev" title="이전">&#8592;</button>
+                    <span class="funfact-counter" id="funfact-counter"></span>
+                    <button class="funfact-btn" id="funfact-next" title="다음">&#8594;</button>
+                </div>
+            </div>
+            <p class="funfact-hint">기다리는 동안 알아두면 쓸데없는 신비한 잡학사전</p>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+.progress-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+.progress-main {
+    flex: 1;
+    min-width: 0;
+}
+.funfact-sidebar {
+    width: 320px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 80px;
+}
+.funfact-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 28px 24px 20px;
+    color: white;
+    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+    animation: funfact-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    perspective: 1000px;
+    transform-style: preserve-3d;
+    transition: background 0.6s ease, box-shadow 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+.funfact-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 60%);
+    animation: shimmer 8s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes shimmer {
+    0%, 100% { transform: translate(-30%, -30%) rotate(0deg); }
+    50% { transform: translate(10%, 10%) rotate(180deg); }
+}
+@keyframes funfact-in {
+    0% { opacity: 0; transform: translateY(30px) scale(0.9) rotateX(10deg); }
+    60% { opacity: 1; transform: translateY(-5px) scale(1.02) rotateX(-2deg); }
+    100% { opacity: 1; transform: translateY(0) scale(1) rotateX(0); }
+}
+.funfact-category {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(4px);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+    align-self: flex-start;
+}
+.funfact-text {
+    font-size: 15px;
+    line-height: 1.7;
+    flex: 1;
+    word-break: keep-all;
+}
+.funfact-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+}
+.funfact-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.funfact-btn:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.1);
+}
+.funfact-counter {
+    font-size: 12px;
+    opacity: 0.7;
+    min-width: 60px;
+    text-align: center;
+}
+.funfact-hint {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-light);
+    margin-top: 12px;
+    opacity: 0.7;
+}
+
+/* Card transition animation */
+.funfact-card.funfact-exit {
+    animation: card-exit 0.35s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+}
+.funfact-card.funfact-enter {
+    animation: card-enter 0.45s cubic-bezier(0, 0.55, 0.45, 1) forwards;
+}
+@keyframes card-exit {
+    0% { opacity: 1; transform: scale(1) rotateY(0); }
+    100% { opacity: 0; transform: scale(0.85) rotateY(90deg); }
+}
+@keyframes card-enter {
+    0% { opacity: 0; transform: scale(0.85) rotateY(-90deg); }
+    50% { opacity: 0.8; transform: scale(1.03) rotateY(-5deg); }
+    70% { transform: scale(0.98) rotateY(2deg); }
+    100% { opacity: 1; transform: scale(1) rotateY(0); }
+}
+/* Idle floating animation */
+.funfact-card.funfact-idle {
+    animation: idle-float 4s ease-in-out infinite;
+}
+@keyframes idle-float {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-4px) rotate(0.3deg); }
+    75% { transform: translateY(2px) rotate(-0.2deg); }
+}
+/* Typewriter cursor */
+.funfact-text .typewriter-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: currentColor;
+    margin-left: 2px;
+    animation: blink-cursor 0.7s step-end infinite;
+    vertical-align: text-bottom;
+}
+@keyframes blink-cursor {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+/* Category badge pop */
+.funfact-category {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.funfact-card.funfact-enter .funfact-category {
+    animation: badge-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both;
+}
+@keyframes badge-pop {
+    0% { opacity: 0; transform: scale(0.5) translateY(-8px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Gradient themes per category */
+.funfact-theme-0 { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.funfact-theme-1 { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.funfact-theme-2 { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+.funfact-theme-3 { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+.funfact-theme-4 { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+.funfact-theme-5 { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
+.funfact-theme-6 { background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%); }
+.funfact-theme-7 { background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); }
+.funfact-theme-8 { background: linear-gradient(135deg, #c471f5 0%, #fa71cd 100%); }
+
+/* Dark text for light gradients */
+.funfact-theme-3 .funfact-text,
+.funfact-theme-4 .funfact-text,
+.funfact-theme-7 .funfact-text { color: #1a1a2e; }
+.funfact-theme-3 .funfact-category,
+.funfact-theme-4 .funfact-category,
+.funfact-theme-7 .funfact-category { background: rgba(0,0,0,0.12); color: #1a1a2e; }
+.funfact-theme-3 .funfact-btn,
+.funfact-theme-4 .funfact-btn,
+.funfact-theme-7 .funfact-btn { color: #1a1a2e; background: rgba(0,0,0,0.1); }
+.funfact-theme-3 .funfact-counter,
+.funfact-theme-4 .funfact-counter,
+.funfact-theme-7 .funfact-counter { color: #1a1a2e; }
+.funfact-theme-3 .funfact-footer,
+.funfact-theme-4 .funfact-footer,
+.funfact-theme-7 .funfact-footer { border-top-color: rgba(0,0,0,0.12); }
+
+@media (max-width: 900px) {
+    .progress-layout { flex-direction: column; }
+    .funfact-sidebar { width: 100%; position: static; }
+}
+</style>
+
 <script>
 const SESSION_ID = "{{ session.session_id }}";
 const logArea = document.getElementById('log-area');
@@ -121,5 +335,220 @@ evtSource.onerror = function() {
     evtSource.close();
     appendLog('log-area', '연결이 끊어졌습니다. 페이지를 새로고침하세요.', 'error');
 };
+
+// === Fun Facts ===
+const funFacts = [
+    { cat: "동물 & 자연", text: "문어는 심장이 3개인데, 수영할 때는 그 중 하나가 멈춘다. 그래서 문어는 수영보다 걷는 걸 선호한다." },
+    { cat: "동물 & 자연", text: "꿀벌은 춤으로 동료에게 꽃의 위치를 알려주는데, 이 안무의 정확도는 GPS 수준이다." },
+    { cat: "동물 & 자연", text: "바나나는 식물학적으로 '베리'이고, 딸기는 베리가 아니다. 세상이 우리에게 거짓말을 하고 있다." },
+    { cat: "동물 & 자연", text: "해달은 잠잘 때 서로 손을 잡고 자서 떠내려가지 않게 한다. 이걸 '래프트(raft)'라고 부른다." },
+    { cat: "동물 & 자연", text: "나무늘보는 너무 느려서 몸에 이끼가 자라고, 그 이끼에 사는 나방 종류도 있다. 하나의 생태계다." },
+    { cat: "동물 & 자연", text: "고양이는 야옹 소리를 오직 인간에게만 낸다. 고양이끼리는 야옹하지 않는다." },
+    { cat: "동물 & 자연", text: "기린의 혀는 약 50cm이고 자외선 차단 기능이 있어서 색이 검보라색이다." },
+    { cat: "동물 & 자연", text: "까마귀는 사람의 얼굴을 기억하고, 자기한테 못되게 군 사람을 동료에게 알려준다." },
+    { cat: "동물 & 자연", text: "랍스터는 생물학적으로 늙지 않는다. 이론적으로 영원히 살 수 있지만, 결국 탈피할 에너지가 부족해서 죽는다." },
+    { cat: "동물 & 자연", text: "웜뱃의 똥은 정육면체다. 굴러가지 않게 해서 영역 표시를 하려는 진화적 전략이다." },
+    { cat: "인체 & 심리", text: "당신의 위장은 약 3~4일마다 새로운 점막을 만든다. 안 그러면 자기 자신을 소화시켜 버리니까." },
+    { cat: "인체 & 심리", text: "인간의 뇌는 깨어 있는 동안 약 12~25와트의 전력을 생산한다. LED 전구 하나를 켤 수 있는 양이다." },
+    { cat: "인체 & 심리", text: "사람은 평생 약 25,000일을 산다. 오늘은 그 중 단 하루다." },
+    { cat: "인체 & 심리", text: "인간의 코는 약 1조 가지 냄새를 구별할 수 있지만, 대부분의 사람은 자기 집 냄새를 못 맡는다." },
+    { cat: "인체 & 심리", text: "당신의 몸에는 은하수의 별보다 많은 수의 세균이 살고 있다." },
+    { cat: "인체 & 심리", text: "눈을 뜬 채로 재채기하는 것이 물리적으로 불가능하다. 뇌가 자동으로 눈을 감게 만든다." },
+    { cat: "인체 & 심리", text: "사람의 뼈는 콘크리트보다 4배 강하다. 같은 무게 기준으로." },
+    { cat: "인체 & 심리", text: "아기는 성인보다 뼈가 약 80개 더 많다. 자라면서 여러 뼈가 합쳐지기 때문이다." },
+    { cat: "인체 & 심리", text: "인간은 지구상에서 유일하게 '매운맛'을 즐기는 종이다. 진화적으로 전혀 설명이 안 되는 취미다." },
+    { cat: "인체 & 심리", text: "당신의 혈관을 한 줄로 이으면 지구를 약 2.5바퀴 감을 수 있다." },
+    { cat: "역사 & 문명", text: "클레오파트라가 살던 시대는 아이폰 출시 시점에 더 가깝다. 피라미드 건설 시점보다." },
+    { cat: "역사 & 문명", text: "옥스퍼드 대학교는 아즈텍 문명보다 오래됐다. 옥스퍼드 1096년, 아즈텍 1325년 설립." },
+    { cat: "역사 & 문명", text: "고대 로마인들은 소변으로 빨래를 했다. 암모니아가 표백 효과를 냈기 때문이다." },
+    { cat: "역사 & 문명", text: "닌텐도는 1889년에 설립됐다. 화투 카드를 만드는 회사로 시작했다." },
+    { cat: "역사 & 문명", text: "세계 최초의 컴퓨터 프로그래머는 여성이다. 에이다 러브레이스, 1843년." },
+    { cat: "역사 & 문명", text: "샌드위치 백작이 도박을 하면서 빵 사이에 고기를 끼워 먹은 것이 샌드위치의 기원이다." },
+    { cat: "역사 & 문명", text: "비행기가 발명된 해(1903)와 인류가 달에 간 해(1969) 사이는 겨우 66년이다." },
+    { cat: "역사 & 문명", text: "칭기즈칸 시대의 몽골 우편 시스템은 당시 세계에서 가장 빨랐다. 하루 300km 이상." },
+    { cat: "역사 & 문명", text: "고대 이집트인들은 고대 이집트 피라미드를 '고대 유적'으로 여겼다. 그만큼 피라미드는 오래됐다." },
+    { cat: "역사 & 문명", text: "알래스카는 동시에 미국의 가장 서쪽, 가장 북쪽, 그리고 가장 동쪽에 있는 주다. 날짜변경선 때문에." },
+    { cat: "우주 & 과학", text: "우주에서는 두 개의 금속 조각이 닿으면 영구적으로 붙어버린다. '냉간 용접(Cold Welding)'이라 부른다." },
+    { cat: "우주 & 과학", text: "중성자별의 각설탕 한 개 크기 물질은 무게가 약 60억 톤이다." },
+    { cat: "우주 & 과학", text: "화성의 일몰은 파란색이다. 지구의 석양은 붉고, 화성의 석양은 푸르다." },
+    { cat: "우주 & 과학", text: "빛의 속도로 이동하면 태양에서 지구까지 8분 20초가 걸린다. 지금 보는 햇빛은 8분 전의 빛이다." },
+    { cat: "우주 & 과학", text: "우주에는 지구의 모든 해변 모래알 수보다 더 많은 별이 있다." },
+    { cat: "우주 & 과학", text: "토성은 물에 뜬다. 밀도가 물보다 낮은 유일한 행성이다. (물론 그만큼 큰 욕조는 없다.)" },
+    { cat: "우주 & 과학", text: "1년 동안 지구에 떨어지는 우주 먼지의 양은 약 4만 톤이다. 당신도 매일 별의 먼지를 맞고 있다." },
+    { cat: "우주 & 과학", text: "보이저 1호는 1977년에 발사됐고, 아직도 날아가고 있다. 현재 지구에서 가장 먼 인공물이다." },
+    { cat: "우주 & 과학", text: "금성의 하루는 금성의 1년보다 길다. 자전이 공전보다 느리다." },
+    { cat: "우주 & 과학", text: "관측 가능한 우주의 지름은 약 930억 광년이지만, 우주의 나이는 138억 년이다. 우주가 빛보다 빠르게 팽창하고 있기 때문이다." },
+    { cat: "음식 & 일상", text: "꿀은 상하지 않는다. 3,000년 된 이집트 무덤의 꿀도 먹을 수 있었다." },
+    { cat: "음식 & 일상", text: "당근이 원래 보라색이었다는 사실. 주황색 당근은 17세기 네덜란드에서 품종 개량된 것이다." },
+    { cat: "음식 & 일상", text: "감자칩은 요리사가 \"감자가 너무 두껍다\"는 손님의 불평에 화가 나서 일부러 얇게 썰어 만든 것이다." },
+    { cat: "음식 & 일상", text: "전 세계에서 매초 약 4,000잔의 커피가 소비된다. 이 문장을 읽는 동안에도 수천 잔이 사라졌다." },
+    { cat: "음식 & 일상", text: "딸기의 씨는 바깥에 있는 유일한 과일이다. 평균 한 알에 약 200개." },
+    { cat: "음식 & 일상", text: "피자의 원형인 납작빵에 토핑을 올리는 요리는 고대 그리스에서 시작됐다. 이탈리아가 아니다." },
+    { cat: "음식 & 일상", text: "브로콜리는 인간이 만든 야채다. 자연에 원래 존재하지 않았다. 양배추를 품종 개량한 것이다." },
+    { cat: "음식 & 일상", text: "코카콜라는 원래 초록색이었다. 캐러멜 색소를 넣기 전까지." },
+    { cat: "음식 & 일상", text: "옥수수 낟알의 줄 수는 항상 짝수다. 홀수인 옥수수는 존재하지 않는다." },
+    { cat: "음식 & 일상", text: "파인애플 한 개가 다 자라려면 약 2~3년이 걸린다. 편의점에서 2초 만에 집는 그 파인애플." },
+    { cat: "언어 & 문화", text: "\"typewriter(타자기)\"는 키보드 맨 윗줄 글자만으로 쓸 수 있는 가장 긴 영단어다." },
+    { cat: "언어 & 문화", text: "일본어에는 \"나무 사이로 비치는 햇살의 패턴\"을 뜻하는 단어(木漏れ日, 코모레비)가 있다." },
+    { cat: "언어 & 문화", text: "영어 문장 \"The quick brown fox jumps over the lazy dog\"에는 알파벳 26자가 모두 들어있다." },
+    { cat: "언어 & 문화", text: "한국어의 \"눈치\"는 영어로 정확히 번역할 수 없는 단어 중 하나로 꼽힌다." },
+    { cat: "언어 & 문화", text: "하와이어 알파벳은 12글자뿐이다. 모음 5개와 자음 7개." },
+    { cat: "언어 & 문화", text: "\"set\"이라는 영단어는 사전에서 가장 많은 뜻을 가진 단어다. 400개 이상." },
+    { cat: "언어 & 문화", text: "독일어에는 \"다른 사람의 불행에서 느끼는 은밀한 기쁨\"을 뜻하는 단어(Schadenfreude)가 있다." },
+    { cat: "언어 & 문화", text: "이모지(emoji)는 일본어 '그림(絵)'과 '문자(文字)'의 합성어다. emotion과는 관련이 없다." },
+    { cat: "언어 & 문화", text: "\"OK\"는 세계에서 가장 보편적으로 이해되는 단어다. 거의 모든 언어권에서 통한다." },
+    { cat: "언어 & 문화", text: "느낌표(!)의 영어 이름 exclamation mark의 어원은 라틴어의 감탄사 \"io\"에서 왔는데, i를 o 위에 쓴 것이 !가 됐다는 설이 있다." },
+    { cat: "기술 & 디지털", text: "초기 아이폰 프레젠테이션에서 스티브 잡스가 화면을 쓸어넘길 때, 사실 무대 뒤에서 엔지니어들은 극도로 긴장하고 있었다. 기기가 수시로 크래시 났기 때문이다." },
+    { cat: "기술 & 디지털", text: "전 세계 인터넷 트래픽의 약 절반 이상은 봇이 만들어낸다." },
+    { cat: "기술 & 디지털", text: "최초의 웹캠은 케임브리지 대학에서 커피포트를 모니터링하기 위해 만들어졌다." },
+    { cat: "기술 & 디지털", text: "\"버그(bug)\"라는 IT 용어는 진짜 나방이 컴퓨터에 끼어 오류를 일으킨 사건에서 유래했다." },
+    { cat: "기술 & 디지털", text: "구글의 첫 서버는 레고 블록으로 케이스를 만들었다." },
+    { cat: "기술 & 디지털", text: "당신의 스마트폰은 1969년 달에 간 아폴로 우주선의 컴퓨터보다 약 10만 배 더 강력하다." },
+    { cat: "기술 & 디지털", text: "위키피디아의 전체 텍스트를 출력하면 약 2만 권의 책 분량이다." },
+    { cat: "기술 & 디지털", text: "CAPTCHA를 풀 때마다 당신은 무료로 AI 학습 데이터를 라벨링해주고 있는 것이다." },
+    { cat: "기술 & 디지털", text: "유튜브 첫 영상의 제목은 \"Me at the zoo\"이고, 길이는 18초다." },
+    { cat: "기술 & 디지털", text: "QR코드의 QR은 \"Quick Response\"의 약자다. 원래 일본의 자동차 부품 추적용으로 발명됐다." },
+    { cat: "수학 & 확률", text: "셔플된 카드 한 벌의 배열 순서가 역사상 동일했던 적이 있을 확률은 사실상 0이다. 가능한 순서의 수가 우주의 원자 수보다 많다." },
+    { cat: "수학 & 확률", text: "종이를 42번 접으면 두께가 달까지 닿는다. (물론 물리적으로 접을 수는 없다.)" },
+    { cat: "수학 & 확률", text: "23명만 모이면 그 중 생일이 같은 두 사람이 있을 확률이 50%를 넘는다." },
+    { cat: "수학 & 확률", text: "피보나치 수열은 해바라기 씨의 배열, 소라의 나선, 은하의 형태에 모두 나타난다." },
+    { cat: "수학 & 확률", text: "1부터 100까지 더하면 5050이다. 가우스가 초등학생 때 선생님 벌칙을 이걸로 10초 만에 풀었다." },
+    { cat: "수학 & 확률", text: "무한대에도 크기가 있다. 실수의 무한은 자연수의 무한보다 \"더 큰\" 무한이다." },
+    { cat: "수학 & 확률", text: "구글(Google)의 이름은 10의 100제곱인 \"구골(Googol)\"에서 따왔는데, 실은 철자를 잘못 쓴 것이다." },
+    { cat: "수학 & 확률", text: "만약 지구를 당구공 크기로 줄이면, 지구가 당구공보다 더 매끈하다." },
+    { cat: "수학 & 확률", text: "번개에 맞을 확률은 약 120만분의 1이지만, 로또 1등에 당첨될 확률은 약 814만분의 1이다." },
+    { cat: "수학 & 확률", text: "매일 1%씩 성장하면 1년 뒤에는 37배가 된다. 복리의 마법이다." },
+    { cat: "잡학 & 반전", text: "옥상에서 떨어뜨린 동전이 사람을 죽일 수 있다는 건 도시전설이다. 공기저항 때문에 최대 속도가 제한된다." },
+    { cat: "잡학 & 반전", text: "금은 너무 희귀해서 지금까지 인류가 채굴한 모든 금을 모으면 올림픽 수영장 약 3.5개밖에 안 된다." },
+    { cat: "잡학 & 반전", text: "지구상의 개미 전체 무게는 인류 전체 무게와 거의 비슷하다는 주장이 오래 있었지만, 최근 연구에서는 인류가 더 무겁다고 한다." },
+    { cat: "잡학 & 반전", text: "당신은 물 한 잔을 마실 때마다 통계적으로 공룡이 마셨던 물 분자를 적어도 하나는 마시고 있다." },
+    { cat: "잡학 & 반전", text: "라이터는 성냥보다 먼저 발명됐다. 라이터 1823년, 성냥 1826년." },
+    { cat: "잡학 & 반전", text: "영국 여왕은 공식적으로 영국의 모든 백조를 소유하고 있었다." },
+    { cat: "잡학 & 반전", text: "셰익스피어는 약 1,700개의 영어 단어를 직접 만들었다. \"lonely\", \"generous\" 등." },
+    { cat: "잡학 & 반전", text: "상어는 공룡보다 먼저 존재했고, 나무보다도 먼저 존재했다. 상어는 4억 5천만 년, 나무는 3억 5천만 년 전에 등장." },
+    { cat: "잡학 & 반전", text: "고무 오리 디버깅이라는 프로그래밍 기법이 있다. 코드를 고무 오리에게 설명하면 스스로 오류를 발견하게 된다." },
+    { cat: "잡학 & 반전", text: "비행기의 블랙박스는 사실 주황색이다. 찾기 쉽게 하려고." },
+    { cat: "일상 속 숨은 진실", text: "스위스에서는 기니피그를 1마리만 키우는 것이 불법이다. 외로움을 느끼기 때문에." },
+    { cat: "일상 속 숨은 진실", text: "지구의 회전이 매우 조금씩 느려지고 있어서, 공룡 시대의 하루는 약 23시간이었다." },
+    { cat: "일상 속 숨은 진실", text: "티라노사우루스와 스테고사우루스 사이의 시간 간격은 티라노사우루스와 인간 사이의 간격보다 크다." },
+    { cat: "일상 속 숨은 진실", text: "우리 몸의 원자 대부분은 수십억 년 전 초신성 폭발에서 만들어졌다. 말 그대로 당신은 별의 잔해다." },
+    { cat: "일상 속 숨은 진실", text: "킬로그램의 기준이 되는 '국제 킬로그램 원기'가 미세하게 질량이 변해서 2019년에 기준 자체가 바뀌었다." },
+    { cat: "일상 속 숨은 진실", text: "IKEA의 가구 이름은 스웨덴의 지명, 강 이름, 남녀 이름 등에서 따온다. 카테고리별로 규칙이 있다." },
+    { cat: "일상 속 숨은 진실", text: "잠수함의 문은 안쪽과 바깥쪽 중 한쪽만 열리게 설계되어 있다. 어느 쪽인지는 수심에 따라 다르다." },
+    { cat: "일상 속 숨은 진실", text: "오늘 당신이 이 서비스를 쓰는 이 순간에도, 국제우주정거장에서는 누군가가 지구를 90분에 한 바퀴 돌고 있다." },
+    { cat: "일상 속 숨은 진실", text: "이 문장을 읽는 동안 당신의 몸에서는 약 300만 개의 세포가 죽고, 동시에 300만 개의 새 세포가 태어났다." },
+];
+
+// Category -> theme index mapping
+const catThemes = {};
+const categories = [...new Set(funFacts.map(f => f.cat))];
+categories.forEach((c, i) => { catThemes[c] = i % 9; });
+
+// Shuffle facts
+function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+const shuffled = shuffle(funFacts);
+let factIdx = 0;
+
+const cardEl = document.getElementById('funfact-card');
+const catEl = document.getElementById('funfact-category');
+const textEl = document.getElementById('funfact-text');
+const counterEl = document.getElementById('funfact-counter');
+
+let isAnimating = false;
+let typewriterTimer = null;
+
+function typewrite(el, text, speed, callback) {
+    if (typewriterTimer) clearInterval(typewriterTimer);
+    el.innerHTML = '<span class="typewriter-cursor"></span>';
+    let i = 0;
+    typewriterTimer = setInterval(() => {
+        if (i < text.length) {
+            // Insert text before cursor
+            const cursor = el.querySelector('.typewriter-cursor');
+            if (cursor) {
+                cursor.insertAdjacentText('beforebegin', text[i]);
+            } else {
+                el.textContent += text[i];
+            }
+            i++;
+        } else {
+            clearInterval(typewriterTimer);
+            typewriterTimer = null;
+            // Remove cursor after typing done
+            const cursor = el.querySelector('.typewriter-cursor');
+            if (cursor) setTimeout(() => cursor.remove(), 1500);
+            if (callback) callback();
+        }
+    }, speed);
+}
+
+function showFact(idx, animate) {
+    if (isAnimating) return;
+    factIdx = ((idx % shuffled.length) + shuffled.length) % shuffled.length;
+    const fact = shuffled[factIdx];
+    const theme = catThemes[fact.cat];
+
+    if (animate) {
+        isAnimating = true;
+        if (typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
+
+        // Exit animation
+        cardEl.classList.remove('funfact-idle', 'funfact-enter');
+        cardEl.classList.add('funfact-exit');
+
+        setTimeout(() => {
+            // Swap content while hidden
+            catEl.textContent = fact.cat;
+            textEl.textContent = '';
+            counterEl.textContent = `${factIdx + 1} / ${shuffled.length}`;
+            cardEl.className = `funfact-card funfact-theme-${theme} funfact-enter`;
+
+            // Start typewriter after card enters
+            setTimeout(() => {
+                typewrite(textEl, fact.text, 25, () => {
+                    cardEl.classList.remove('funfact-enter');
+                    cardEl.classList.add('funfact-idle');
+                });
+                isAnimating = false;
+            }, 450);
+        }, 350);
+    } else {
+        catEl.textContent = fact.cat;
+        textEl.textContent = fact.text;
+        counterEl.textContent = `${factIdx + 1} / ${shuffled.length}`;
+        cardEl.className = `funfact-card funfact-theme-${theme} funfact-idle`;
+    }
+}
+
+// Init
+showFact(0, false);
+
+// Buttons
+document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx - 1, true));
+document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx + 1, true));
+
+// Auto-advance every 8 seconds
+let autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
+
+// Pause auto on hover
+const sidebar = document.getElementById('funfact-sidebar');
+sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
+sidebar.addEventListener('mouseleave', () => {
+    autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
+});
+
+// Keyboard support
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') showFact(factIdx - 1, true);
+    if (e.key === 'ArrowRight') showFact(factIdx + 1, true);
+});
 </script>
 {% endblock %}

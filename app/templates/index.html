@@ -1,27 +1,44 @@
 {% extends "base.html" %}
-{% block title %}더벨 News Clipper - 대시보드{% endblock %}
+{% block title %}딜사이트플러스 News Clipper - 대시보드{% endblock %}
 {% block content %}
 <div class="container">
-    <h1>더벨 Daily News Clipping</h1>
+    <h1>딜사이트플러스 Daily News Clipping</h1>
 
-    <div class="card">
-        <h2>새 클리핑 시작</h2>
-        <div class="date-info">
-            <p><strong>수집 기간:</strong></p>
-            <div class="date-inputs">
-                <input type="datetime-local" id="date-from" value="{{ date_from_str }}">
-                <span class="date-sep">~</span>
-                <input type="datetime-local" id="date-to" value="{{ date_to_str }}">
+    <div class="crawl-layout" id="crawl-layout">
+        <div class="crawl-main">
+            <div class="card">
+                <h2>새 클리핑 시작</h2>
+                <div class="date-info">
+                    <p><strong>수집 기간:</strong></p>
+                    <div class="date-inputs">
+                        <input type="datetime-local" id="date-from" value="{{ date_from_str }}">
+                        <span class="date-sep">~</span>
+                        <input type="datetime-local" id="date-to" value="{{ date_to_str }}">
+                    </div>
+                </div>
+                <div class="actions">
+                    <button id="btn-start-crawl" class="btn btn-primary" onclick="startCrawl()">
+                        크롤링 시작
+                    </button>
+                </div>
+                <div id="crawl-status" class="status-area" style="display:none;">
+                    <div class="spinner"></div>
+                    <p id="crawl-status-text">크롤링 준비 중...</p>
+                </div>
             </div>
         </div>
-        <div class="actions">
-            <button id="btn-start-crawl" class="btn btn-primary" onclick="startCrawl()">
-                크롤링 시작
-            </button>
-        </div>
-        <div id="crawl-status" class="status-area" style="display:none;">
-            <div class="spinner"></div>
-            <p id="crawl-status-text">크롤링 준비 중...</p>
+
+        <div class="funfact-sidebar" id="funfact-sidebar" style="display:none;">
+            <div class="funfact-card" id="funfact-card">
+                <div class="funfact-category" id="funfact-category"></div>
+                <div class="funfact-text" id="funfact-text"></div>
+                <div class="funfact-footer">
+                    <button class="funfact-btn" id="funfact-prev" title="이전">&#8592;</button>
+                    <span class="funfact-counter" id="funfact-counter"></span>
+                    <button class="funfact-btn" id="funfact-next" title="다음">&#8594;</button>
+                </div>
+            </div>
+            <p class="funfact-hint">기다리는 동안 알아두면 쓸데없는 신비한 잡학사전</p>
         </div>
     </div>
 
@@ -62,6 +79,77 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+.crawl-layout { display: flex; gap: 20px; align-items: flex-start; }
+.crawl-main { flex: 1; min-width: 0; }
+.funfact-sidebar { width: 320px; flex-shrink: 0; position: sticky; top: 80px; }
+.funfact-card {
+    border-radius: 16px; padding: 28px 24px 20px; color: white;
+    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+    min-height: 240px; display: flex; flex-direction: column;
+    perspective: 1000px; transform-style: preserve-3d;
+    transition: background 0.6s ease; position: relative; overflow: hidden;
+}
+.funfact-card::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 60%);
+    animation: shimmer 8s ease-in-out infinite; pointer-events: none;
+}
+@keyframes shimmer {
+    0%, 100% { transform: translate(-30%, -30%) rotate(0deg); }
+    50% { transform: translate(10%, 10%) rotate(180deg); }
+}
+.funfact-category {
+    display: inline-block; background: rgba(255,255,255,0.2); backdrop-filter: blur(4px);
+    padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.5px; margin-bottom: 16px; align-self: flex-start;
+}
+.funfact-text { font-size: 15px; line-height: 1.7; flex: 1; word-break: keep-all; }
+.funfact-footer {
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.2);
+}
+.funfact-btn {
+    background: rgba(255,255,255,0.15); border: none; color: white;
+    width: 36px; height: 36px; border-radius: 50%; font-size: 18px;
+    cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+}
+.funfact-btn:hover { background: rgba(255,255,255,0.3); transform: scale(1.1); }
+.funfact-counter { font-size: 12px; opacity: 0.7; min-width: 60px; text-align: center; }
+.funfact-hint { text-align: center; font-size: 11px; color: var(--text-light); margin-top: 12px; opacity: 0.7; }
+.funfact-card.funfact-exit { animation: card-exit 0.35s cubic-bezier(0.55, 0, 1, 0.45) forwards; }
+.funfact-card.funfact-enter { animation: card-enter 0.45s cubic-bezier(0, 0.55, 0.45, 1) forwards; }
+@keyframes card-exit { 0% { opacity:1; transform:scale(1) rotateY(0); } 100% { opacity:0; transform:scale(0.85) rotateY(90deg); } }
+@keyframes card-enter {
+    0% { opacity:0; transform:scale(0.85) rotateY(-90deg); }
+    50% { opacity:0.8; transform:scale(1.03) rotateY(-5deg); }
+    70% { transform:scale(0.98) rotateY(2deg); }
+    100% { opacity:1; transform:scale(1) rotateY(0); }
+}
+.funfact-card.funfact-idle { animation: idle-float 4s ease-in-out infinite; }
+@keyframes idle-float { 0%,100% { transform:translateY(0); } 25% { transform:translateY(-4px); } 75% { transform:translateY(2px); } }
+.typewriter-cursor { display:inline-block; width:2px; height:1em; background:currentColor; margin-left:2px; animation:blink-cursor 0.7s step-end infinite; vertical-align:text-bottom; }
+@keyframes blink-cursor { 0%,100% { opacity:1; } 50% { opacity:0; } }
+.funfact-card.funfact-enter .funfact-category { animation: badge-pop 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.3s both; }
+@keyframes badge-pop { 0% { opacity:0; transform:scale(0.5) translateY(-8px); } 100% { opacity:1; transform:scale(1) translateY(0); } }
+.funfact-theme-0 { background: linear-gradient(135deg, #667eea, #764ba2); }
+.funfact-theme-1 { background: linear-gradient(135deg, #f093fb, #f5576c); }
+.funfact-theme-2 { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+.funfact-theme-3 { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+.funfact-theme-4 { background: linear-gradient(135deg, #fa709a, #fee140); }
+.funfact-theme-5 { background: linear-gradient(135deg, #a18cd1, #fbc2eb); }
+.funfact-theme-6 { background: linear-gradient(135deg, #fccb90, #d57eeb); }
+.funfact-theme-7 { background: linear-gradient(135deg, #e0c3fc, #8ec5fc); }
+.funfact-theme-8 { background: linear-gradient(135deg, #c471f5, #fa71cd); }
+.funfact-theme-3 .funfact-text, .funfact-theme-4 .funfact-text, .funfact-theme-7 .funfact-text { color: #1a1a2e; }
+.funfact-theme-3 .funfact-category, .funfact-theme-4 .funfact-category, .funfact-theme-7 .funfact-category { background: rgba(0,0,0,0.12); color: #1a1a2e; }
+.funfact-theme-3 .funfact-btn, .funfact-theme-4 .funfact-btn, .funfact-theme-7 .funfact-btn { color: #1a1a2e; background: rgba(0,0,0,0.1); }
+.funfact-theme-3 .funfact-counter, .funfact-theme-4 .funfact-counter, .funfact-theme-7 .funfact-counter { color: #1a1a2e; }
+.funfact-theme-3 .funfact-footer, .funfact-theme-4 .funfact-footer, .funfact-theme-7 .funfact-footer { border-top-color: rgba(0,0,0,0.12); }
+.funfact-sidebar-enter { animation: sidebar-slide-in 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+@keyframes sidebar-slide-in { 0% { opacity:0; transform:translateX(40px) scale(0.9); } 100% { opacity:1; transform:translateX(0) scale(1); } }
+@media (max-width: 900px) { .crawl-layout { flex-direction: column; } .funfact-sidebar { width: 100%; position: static; } }
+</style>
 <script>
 async function startCrawl() {
     const btn = document.getElementById('btn-start-crawl');
@@ -71,6 +159,7 @@ async function startCrawl() {
     btn.disabled = true;
     statusArea.style.display = 'flex';
     statusText.textContent = '크롤링 시작 중...';
+    showFunFacts();
 
     try {
         const dateFrom = document.getElementById('date-from').value;
@@ -116,6 +205,126 @@ async function pollCrawlStatus(sessionId) {
             statusText.textContent = '상태 확인 오류: ' + e.message;
         }
     }, 2000);
+}
+
+// === Fun Facts ===
+const funFacts = [
+    { cat: "동물 & 자연", text: "문어는 심장이 3개인데, 수영할 때는 그 중 하나가 멈춘다. 그래서 문어는 수영보다 걷는 걸 선호한다." },
+    { cat: "동물 & 자연", text: "꿀벌은 춤으로 동료에게 꽃의 위치를 알려주는데, 이 안무의 정확도는 GPS 수준이다." },
+    { cat: "동물 & 자연", text: "바나나는 식물학적으로 '베리'이고, 딸기는 베리가 아니다. 세상이 우리에게 거짓말을 하고 있다." },
+    { cat: "동물 & 자연", text: "해달은 잠잘 때 서로 손을 잡고 자서 떠내려가지 않게 한다. 이걸 '래프트(raft)'라고 부른다." },
+    { cat: "동물 & 자연", text: "나무늘보는 너무 느려서 몸에 이끼가 자라고, 그 이끼에 사는 나방 종류도 있다. 하나의 생태계다." },
+    { cat: "동물 & 자연", text: "고양이는 야옹 소리를 오직 인간에게만 낸다. 고양이끼리는 야옹하지 않는다." },
+    { cat: "동물 & 자연", text: "기린의 혀는 약 50cm이고 자외선 차단 기능이 있어서 색이 검보라색이다." },
+    { cat: "동물 & 자연", text: "까마귀는 사람의 얼굴을 기억하고, 자기한테 못되게 군 사람을 동료에게 알려준다." },
+    { cat: "동물 & 자연", text: "랍스터는 생물학적으로 늙지 않는다. 이론적으로 영원히 살 수 있지만, 결국 탈피할 에너지가 부족해서 죽는다." },
+    { cat: "동물 & 자연", text: "웜뱃의 똥은 정육면체다. 굴러가지 않게 해서 영역 표시를 하려는 진화적 전략이다." },
+    { cat: "인체 & 심리", text: "당신의 위장은 약 3~4일마다 새로운 점막을 만든다. 안 그러면 자기 자신을 소화시켜 버리니까." },
+    { cat: "인체 & 심리", text: "인간의 뇌는 깨어 있는 동안 약 12~25와트의 전력을 생산한다. LED 전구 하나를 켤 수 있는 양이다." },
+    { cat: "인체 & 심리", text: "사람은 평생 약 25,000일을 산다. 오늘은 그 중 단 하루다." },
+    { cat: "인체 & 심리", text: "인간의 코는 약 1조 가지 냄새를 구별할 수 있지만, 대부분의 사람은 자기 집 냄새를 못 맡는다." },
+    { cat: "인체 & 심리", text: "인간은 지구상에서 유일하게 '매운맛'을 즐기는 종이다. 진화적으로 전혀 설명이 안 되는 취미다." },
+    { cat: "역사 & 문명", text: "클레오파트라가 살던 시대는 아이폰 출시 시점에 더 가깝다. 피라미드 건설 시점보다." },
+    { cat: "역사 & 문명", text: "옥스퍼드 대학교는 아즈텍 문명보다 오래됐다. 옥스퍼드 1096년, 아즈텍 1325년 설립." },
+    { cat: "역사 & 문명", text: "닌텐도는 1889년에 설립됐다. 화투 카드를 만드는 회사로 시작했다." },
+    { cat: "역사 & 문명", text: "비행기가 발명된 해(1903)와 인류가 달에 간 해(1969) 사이는 겨우 66년이다." },
+    { cat: "역사 & 문명", text: "고대 이집트인들은 고대 이집트 피라미드를 '고대 유적'으로 여겼다. 그만큼 피라미드는 오래됐다." },
+    { cat: "우주 & 과학", text: "우주에서는 두 개의 금속 조각이 닿으면 영구적으로 붙어버린다. '냉간 용접(Cold Welding)'이라 부른다." },
+    { cat: "우주 & 과학", text: "화성의 일몰은 파란색이다. 지구의 석양은 붉고, 화성의 석양은 푸르다." },
+    { cat: "우주 & 과학", text: "토성은 물에 뜬다. 밀도가 물보다 낮은 유일한 행성이다. (물론 그만큼 큰 욕조는 없다.)" },
+    { cat: "우주 & 과학", text: "금성의 하루는 금성의 1년보다 길다. 자전이 공전보다 느리다." },
+    { cat: "음식 & 일상", text: "꿀은 상하지 않는다. 3,000년 된 이집트 무덤의 꿀도 먹을 수 있었다." },
+    { cat: "음식 & 일상", text: "감자칩은 요리사가 '감자가 너무 두껍다'는 손님의 불평에 화가 나서 일부러 얇게 썰어 만든 것이다." },
+    { cat: "음식 & 일상", text: "브로콜리는 인간이 만든 야채다. 자연에 원래 존재하지 않았다. 양배추를 품종 개량한 것이다." },
+    { cat: "음식 & 일상", text: "파인애플 한 개가 다 자라려면 약 2~3년이 걸린다. 편의점에서 2초 만에 집는 그 파인애플." },
+    { cat: "기술 & 디지털", text: "최초의 웹캠은 케임브리지 대학에서 커피포트를 모니터링하기 위해 만들어졌다." },
+    { cat: "기술 & 디지털", text: "당신의 스마트폰은 1969년 달에 간 아폴로 우주선의 컴퓨터보다 약 10만 배 더 강력하다." },
+    { cat: "기술 & 디지털", text: "CAPTCHA를 풀 때마다 당신은 무료로 AI 학습 데이터를 라벨링해주고 있는 것이다." },
+    { cat: "수학 & 확률", text: "23명만 모이면 그 중 생일이 같은 두 사람이 있을 확률이 50%를 넘는다." },
+    { cat: "수학 & 확률", text: "매일 1%씩 성장하면 1년 뒤에는 37배가 된다. 복리의 마법이다." },
+    { cat: "잡학 & 반전", text: "라이터는 성냥보다 먼저 발명됐다. 라이터 1823년, 성냥 1826년." },
+    { cat: "잡학 & 반전", text: "상어는 공룡보다 먼저 존재했고, 나무보다도 먼저 존재했다. 상어는 4억 5천만 년, 나무는 3억 5천만 년 전에 등장." },
+    { cat: "잡학 & 반전", text: "비행기의 블랙박스는 사실 주황색이다. 찾기 쉽게 하려고." },
+    { cat: "일상 속 숨은 진실", text: "스위스에서는 기니피그를 1마리만 키우는 것이 불법이다. 외로움을 느끼기 때문에." },
+    { cat: "일상 속 숨은 진실", text: "티라노사우루스와 스테고사우루스 사이의 시간 간격은 티라노사우루스와 인간 사이의 간격보다 크다." },
+    { cat: "일상 속 숨은 진실", text: "우리 몸의 원자 대부분은 수십억 년 전 초신성 폭발에서 만들어졌다. 말 그대로 당신은 별의 잔해다." },
+];
+
+const catThemes = {};
+[...new Set(funFacts.map(f => f.cat))].forEach((c, i) => { catThemes[c] = i % 9; });
+
+function shuffle(arr) { const a=[...arr]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+const shuffled = shuffle(funFacts);
+let factIdx = 0, isAnimating = false, typewriterTimer = null, autoTimer = null;
+
+function typewrite(el, text, speed, cb) {
+    if(typewriterTimer) clearInterval(typewriterTimer);
+    el.innerHTML = '<span class="typewriter-cursor"></span>';
+    let i = 0;
+    typewriterTimer = setInterval(() => {
+        if(i < text.length) {
+            const cur = el.querySelector('.typewriter-cursor');
+            if(cur) cur.insertAdjacentText('beforebegin', text[i]);
+            else el.textContent += text[i];
+            i++;
+        } else {
+            clearInterval(typewriterTimer); typewriterTimer = null;
+            const cur = el.querySelector('.typewriter-cursor');
+            if(cur) setTimeout(() => cur.remove(), 1500);
+            if(cb) cb();
+        }
+    }, speed);
+}
+
+function showFact(idx, animate) {
+    if(isAnimating) return;
+    const cardEl = document.getElementById('funfact-card');
+    const catEl = document.getElementById('funfact-category');
+    const textEl = document.getElementById('funfact-text');
+    const counterEl = document.getElementById('funfact-counter');
+    if(!cardEl) return;
+
+    factIdx = ((idx % shuffled.length) + shuffled.length) % shuffled.length;
+    const fact = shuffled[factIdx];
+    const theme = catThemes[fact.cat];
+
+    if(animate) {
+        isAnimating = true;
+        if(typewriterTimer) { clearInterval(typewriterTimer); typewriterTimer = null; }
+        cardEl.classList.remove('funfact-idle','funfact-enter');
+        cardEl.classList.add('funfact-exit');
+        setTimeout(() => {
+            catEl.textContent = fact.cat;
+            textEl.textContent = '';
+            counterEl.textContent = `${factIdx+1} / ${shuffled.length}`;
+            cardEl.className = `funfact-card funfact-theme-${theme} funfact-enter`;
+            setTimeout(() => {
+                typewrite(textEl, fact.text, 25, () => {
+                    cardEl.classList.remove('funfact-enter');
+                    cardEl.classList.add('funfact-idle');
+                });
+                isAnimating = false;
+            }, 450);
+        }, 350);
+    } else {
+        catEl.textContent = fact.cat;
+        textEl.textContent = fact.text;
+        counterEl.textContent = `${factIdx+1} / ${shuffled.length}`;
+        cardEl.className = `funfact-card funfact-theme-${theme} funfact-idle`;
+    }
+}
+
+function showFunFacts() {
+    const sidebar = document.getElementById('funfact-sidebar');
+    if(!sidebar) return;
+    sidebar.style.display = 'block';
+    sidebar.classList.add('funfact-sidebar-enter');
+    showFact(0, false);
+    document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx-1, true));
+    document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx+1, true));
+    autoTimer = setInterval(() => showFact(factIdx+1, true), 8000);
+    sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
+    sidebar.addEventListener('mouseleave', () => { autoTimer = setInterval(() => showFact(factIdx+1, true), 8000); });
 }
 </script>
 {% endblock %}
