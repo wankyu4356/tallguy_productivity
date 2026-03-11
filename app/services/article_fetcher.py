@@ -175,6 +175,71 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
     return False
 
 
+def _isolate_article_for_print(driver, article_title: str) -> bool:
+    """Hide everything except the article content for clean PDF output.
+
+    Injects CSS/JS to hide headers, sidebars, ads, footers, etc.
+    Returns True if article content was found and isolated.
+    """
+    # CSS selectors for article content (same as content extraction)
+    content_selectors = [
+        '.article_content', '.articleContent', '.news_content',
+        '.view_content', '.article_body', '.newsContent',
+        '#article_content', '#newsContent', '.content_area',
+        '.view_area', '.article_view', 'article',
+    ]
+
+    js_isolate = """
+    (function(title, selectors) {
+        // Find the article content element
+        var contentEl = null;
+        for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el && el.innerText.trim().length > 100) {
+                contentEl = el;
+                break;
+            }
+        }
+        if (!contentEl) return false;
+
+        // Get the article HTML
+        var articleHTML = contentEl.innerHTML;
+
+        // Build a clean page
+        document.head.innerHTML = '<meta charset="utf-8">' +
+            '<style>' +
+            'body { font-family: "Malgun Gothic", "맑은 고딕", sans-serif; ' +
+            '       max-width: 700px; margin: 40px auto; padding: 0 20px; ' +
+            '       font-size: 14px; line-height: 1.8; color: #222; }' +
+            'h1 { font-size: 20px; line-height: 1.4; margin-bottom: 24px; ' +
+            '     border-bottom: 2px solid #333; padding-bottom: 12px; }' +
+            '.article-body { font-size: 14px; line-height: 1.8; }' +
+            '.article-body img { max-width: 100%; height: auto; margin: 12px 0; }' +
+            '.article-body table { width: 100%; border-collapse: collapse; margin: 12px 0; }' +
+            '.article-body td, .article-body th { border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; }' +
+            '@media print { body { margin: 0; padding: 0; } }' +
+            '</style>';
+        document.body.innerHTML =
+            '<h1>' + title.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</h1>' +
+            '<div class="article-body">' + articleHTML + '</div>';
+
+        return true;
+    })(arguments[0], arguments[1]);
+    """
+
+    try:
+        result = driver.execute_script(js_isolate, article_title, content_selectors)
+        if result:
+            logger.debug(f"기사 본문 분리 성공 | article={article_title[:40]}")
+            return True
+        else:
+            logger.warning(f"기사 본문 요소 못찾음, 전체 페이지 PDF 생성 | article={article_title[:40]}")
+            return False
+    except Exception as e:
+        logger.warning(f"기사 본문 분리 실패 | article={article_title[:40]} | error={e}")
+        return False
+
+
 def _is_error_page_simple(driver) -> bool:
     """Quick check if the current page is an error page."""
     try:
@@ -253,13 +318,17 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
 
         result.content = content[:5000]
 
-        # Generate PDF — try print-friendly page first
+        # Generate PDF — try print-friendly page first, then isolate content
         filename = sanitize_filename(article.title) + ".pdf"
         pdf_path = output_dir / filename
 
         used_print_page = _navigate_to_print_page(driver, article.url)
         if used_print_page:
             logger.debug(f"프린트 페이지에서 PDF 생성 | url={driver.current_url} | article={article.title[:40]}")
+
+        # Isolate article content: strip headers, sidebars, ads, etc.
+        _isolate_article_for_print(driver, article.title)
+        time.sleep(0.3)
 
         # Generate PDF using Chrome DevTools Protocol
         logger.debug(f"CDP printToPDF 호출 | url={driver.current_url} | windows={len(driver.window_handles)}")
