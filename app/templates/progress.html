@@ -81,6 +81,7 @@
     flex-shrink: 0;
     position: sticky;
     top: 80px;
+    z-index: 10;
 }
 .funfact-card {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -528,27 +529,35 @@ function showFact(idx, animate) {
     }
 }
 
-// Init
-showFact(0, false);
+// Init - ensure sidebar is visible and facts are loaded
+try {
+    const sidebar = document.getElementById('funfact-sidebar');
+    if (sidebar) {
+        sidebar.style.display = 'block';
+        sidebar.style.visibility = 'visible';
+    }
+    showFact(0, false);
 
-// Buttons
-document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx - 1, true));
-document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx + 1, true));
+    // Buttons
+    document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx - 1, true));
+    document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx + 1, true));
 
-// Auto-advance every 8 seconds
-let autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
+    // Auto-advance every 8 seconds
+    let autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
 
-// Pause auto on hover
-const sidebar = document.getElementById('funfact-sidebar');
-sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
-sidebar.addEventListener('mouseleave', () => {
-    autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
-});
+    // Pause auto on hover
+    if (sidebar) {
+        sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
+        sidebar.addEventListener('mouseleave', () => {
+            autoTimer = setInterval(() => showFact(factIdx + 1, true), 8000);
+        });
+    }
 
-// Keyboard support
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') showFact(factIdx - 1, true);
-    if (e.key === 'ArrowRight') showFact(factIdx + 1, true);
-});
+    // Keyboard support
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') showFact(factIdx - 1, true);
+        if (e.key === 'ArrowRight') showFact(factIdx + 1, true);
+    });
+} catch(e) { console.error('Fun facts init error:', e); }
 </script>
 {% endblock %}

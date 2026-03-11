@@ -82,7 +82,7 @@
 <style>
 .crawl-layout { display: flex; gap: 20px; align-items: flex-start; }
 .crawl-main { flex: 1; min-width: 0; }
-.funfact-sidebar { width: 320px; flex-shrink: 0; position: sticky; top: 80px; }
+.funfact-sidebar { width: 320px; flex-shrink: 0; position: sticky; top: 80px; z-index: 10; }
 .funfact-card {
     border-radius: 16px; padding: 28px 24px 20px; color: white;
     box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
@@ -316,15 +316,19 @@ function showFact(idx, animate) {
 
 function showFunFacts() {
     const sidebar = document.getElementById('funfact-sidebar');
-    if(!sidebar) return;
+    if(!sidebar) { console.error('funfact-sidebar not found'); return; }
     sidebar.style.display = 'block';
+    sidebar.style.visibility = 'visible';
+    sidebar.style.opacity = '1';
     sidebar.classList.add('funfact-sidebar-enter');
-    showFact(0, false);
-    document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx-1, true));
-    document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx+1, true));
-    autoTimer = setInterval(() => showFact(factIdx+1, true), 8000);
-    sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
-    sidebar.addEventListener('mouseleave', () => { autoTimer = setInterval(() => showFact(factIdx+1, true), 8000); });
+    try {
+        showFact(0, false);
+        document.getElementById('funfact-prev').addEventListener('click', () => showFact(factIdx-1, true));
+        document.getElementById('funfact-next').addEventListener('click', () => showFact(factIdx+1, true));
+        autoTimer = setInterval(() => showFact(factIdx+1, true), 8000);
+        sidebar.addEventListener('mouseenter', () => clearInterval(autoTimer));
+        sidebar.addEventListener('mouseleave', () => { autoTimer = setInterval(() => showFact(factIdx+1, true), 8000); });
+    } catch(e) { console.error('Fun facts error:', e); }
 }
 </script>
 {% endblock %}
