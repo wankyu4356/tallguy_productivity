@@ -27,7 +27,14 @@ class SeleniumContext:
         self.driver = driver
 
     async def close(self):
-        await asyncio.to_thread(self.driver.quit)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(self.driver.quit),
+                timeout=10,
+            )
+        except Exception:
+            # Browser may already be closed by user or crashed — safe to ignore
+            pass
 
 
 class BrowserManager:

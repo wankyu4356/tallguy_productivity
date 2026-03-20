@@ -251,7 +251,11 @@ async def _generate_task(session_id: str):
         articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
         session.articles_with_content = articles_with_content
 
-        await ctx.close()
+        # Close browser — safe to fail if already closed by user
+        try:
+            await ctx.close()
+        except Exception:
+            logger.debug("Browser context already closed")
         ctx = None
 
         # Step 2: Classify with LLM
@@ -269,7 +273,10 @@ async def _generate_task(session_id: str):
         session.error = str(e)
     finally:
         if ctx:
-            await ctx.close()
+            try:
+                await ctx.close()
+            except Exception:
+                pass
 
 
 async def _finalize_task(session_id: str):
