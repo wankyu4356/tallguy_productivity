@@ -389,6 +389,26 @@ async def get_classification(session_id: str):
     return {"status": session.status.value, "tree": tree}
 
 
+@router.post("/api/reclassify/{session_id}")
+async def reclassify(session_id: str):
+    """Re-run AI classification with stricter prompts."""
+    from app.services.llm_classifier import classify_articles
+
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if not session.articles_with_content:
+        raise HTTPException(400, "No articles to classify")
+
+    logger.info(f"[Reclassify] Re-running classification in strict mode for {session_id}")
+    classification = await classify_articles(session.articles_with_content, strict=True)
+    session.classification = classification
+    logger.info(f"[Reclassify] Strict classification complete for {session_id}")
+
+    return {"status": "ok"}
+
+
 class ConfirmIndexRequest(BaseModel):
     tree: list[dict]
 

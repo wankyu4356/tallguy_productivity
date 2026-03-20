@@ -845,30 +845,37 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
                     except Exception:
                         pass
 
-                    # If per-article category was extracted, check if it belongs
-                    # to one of our target sections. Skip irrelevant articles
-                    # (e.g., "테크", "문화콘텐츠", "보험" on Industry pages).
+                    # If per-article category was extracted, only filter when the
+                    # tag is a *known section name* that differs from the current
+                    # section.  Article-type labels like "Company Watch",
+                    # "thebell note", "IB 풍향계" etc. are NOT section names and
+                    # must be ignored — previously these caused valid articles to
+                    # be dropped from the correct section.
                     if article_cat:
-                        _ALLOWED_CATS = {label for label, _ in SECTION_CODES}
-                        # Also allow short forms that match section suffixes
-                        # e.g., "중소기업" matches "Industry - 중소기업"
-                        _ALLOWED_SHORT = set()
-                        for label, _ in SECTION_CODES:
-                            if " - " in label:
-                                _ALLOWED_SHORT.add(label.split(" - ", 1)[1])
-                            _ALLOWED_SHORT.add(label)
-
-                        cat_match = (
-                            article_cat in _ALLOWED_CATS
-                            or article_cat in _ALLOWED_SHORT
-                        )
-                        if not cat_match:
-                            # This article belongs to a category we don't want
-                            logger.debug(
-                                f"카테고리 필터: '{article_cat}' 제외 | "
-                                f"section={category_label} | title={title[:40]}"
-                            )
-                            continue
+                        _KNOWN_SECTION_NAMES = {
+                            "deal", "finance", "invest", "industry",
+                            "헬스바이오", "건설부동산", "중소기업",
+                            "테크", "보험", "문화콘텐츠", "에너지",
+                            "자동차", "유통", "통신", "식품",
+                        }
+                        cat_lower = article_cat.lower().strip()
+                        if cat_lower in _KNOWN_SECTION_NAMES:
+                            current_base = (
+                                category_label.split(" - ")[0]
+                                if " - " in category_label
+                                else category_label
+                            ).lower()
+                            current_suffix = (
+                                category_label.split(" - ", 1)[1]
+                                if " - " in category_label
+                                else ""
+                            ).lower()
+                            if cat_lower != current_base and cat_lower != current_suffix:
+                                logger.debug(
+                                    f"카테고리 필터: '{article_cat}' 제외 (다른 섹션) | "
+                                    f"section={category_label} | title={title[:40]}"
+                                )
+                                continue
 
                     # Always use the section-level category label
                     article = ArticleInfo(

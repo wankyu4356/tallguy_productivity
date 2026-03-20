@@ -11,7 +11,10 @@
             <h1>Index 검수</h1>
             <p>기사 블록을 드래그하여 순서 변경 또는 다른 섹션으로 이동하세요.</p>
         </div>
-        <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="btn-reclassify" onclick="handleReclassify()">AI 분류 재시도</button>
+            <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
+        </div>
     </div>
 
     <nav class="ri-nav" id="section-nav"></nav>
@@ -287,6 +290,27 @@ function findArticle(id) {
         }
     }
     return null;
+}
+
+async function handleReclassify() {
+    if (!confirm('AI 분류를 재시도하시겠습니까?\n현재 수동 편집 내용은 초기화됩니다.')) return;
+    const btn = document.getElementById('btn-reclassify');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '분류 중...';
+    try {
+        const res = await fetch(`/api/reclassify/${SESSION_ID}`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || '분류 재시도 실패');
+        }
+        await loadClassification();
+    } catch (e) {
+        alert('분류 재시도 실패: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
 }
 
 async function handleConfirm() {

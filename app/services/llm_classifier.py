@@ -188,21 +188,49 @@ async def recommend_articles(
     return [ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요") for a in articles]
 
 
-async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOutput:
-    """Use Claude to classify articles into the taxonomy."""
+async def classify_articles(
+    articles: list[ArticleWithContent],
+    *,
+    strict: bool = False,
+) -> ClassifiedOutput:
+    """Use Claude to classify articles into the taxonomy.
+
+    Args:
+        articles: Articles with fetched content.
+        strict: When True, use stricter prompts that more rigidly follow
+                the original crawled category. Intended for retry requests.
+    """
     if not articles:
         return ClassifiedOutput()
 
     client = _get_client()
 
+    # In strict mode, send more content for better accuracy
+    content_limit = 5000 if strict else 3000
+
     # Send more content for better classification accuracy
     articles_text = "\n---\n".join([
-        f"[{a.info.id}] 제목: {a.info.title}\n원본 카테고리: {a.info.category} > {a.info.subcategory}\n요약: {a.info.summary or '없음'}\n본문:\n{a.content[:3000]}"
+        f"[{a.info.id}] 제목: {a.info.title}\n원본 카테고리: {a.info.category} > {a.info.subcategory}\n요약: {a.info.summary or '없음'}\n본문:\n{a.content[:content_limit]}"
         for a in articles
     ])
 
-    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+    strict_notice = ""
+    if strict:
+        strict_notice = """
+## ⚠️ 엄밀 모드 (Strict Classification)
+이 분류는 재시도입니다. 이전 분류에서 오류가 있었으므로 더 엄밀하게 작업하세요.
 
+추가 규칙:
+1. 원본 카테고리를 **절대적으로** 존중하세요. 재분류는 극히 예외적인 경우(본문 내용이 원본 카테고리와 완전히 무관할 때)에만 허용합니다.
+2. 각 기사의 본문을 더 꼼꼼하게 읽고, classification_reasoning에 원본 카테고리 유지/변경 근거를 **반드시** 포함하세요.
+3. Deal 섹션 기사는 반드시 Deal 하위에, Finance/Invest 섹션 기사는 반드시 Fundraising에 배치하세요.
+4. Industry 섹션 기사는 반드시 Industry 하위에 배치하세요.
+5. 하위 분류도 더 신중하게 판단하세요. 애매한 경우 "기타"보다는 가장 적합한 하위 카테고리에 배치하세요.
+
+"""
+
+    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+{strict_notice}
 ## 분류 절차 (반드시 이 순서대로 진행):
 
 **Step 1**: 각 기사의 제목과 본문을 읽고, 기사의 핵심 주제를 파악하세요.
