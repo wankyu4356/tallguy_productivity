@@ -99,6 +99,12 @@ async function pollCrawlStatus(sessionId) {
     const interval = setInterval(async () => {
         try {
             const res = await fetch(`/api/crawl/${sessionId}`);
+            if (!res.ok) {
+                clearInterval(interval);
+                statusText.textContent = '세션이 만료되었습니다. 페이지를 새로고침하세요.';
+                document.getElementById('btn-start-crawl').disabled = false;
+                return;
+            }
             const data = await res.json();
             if (data.status === 'crawl_done') {
                 clearInterval(interval);
