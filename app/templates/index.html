@@ -29,14 +29,17 @@
             <div class="sdk-header">
                 <div class="game-emoji">&#x1F9E9;</div>
                 <h2 class="game-title">스도쿠 챌린지</h2>
-                <p class="game-sub">각 행, 열, 2x2 박스에 <strong>1~4</strong>를 한 번씩!</p>
+                <p class="game-sub">각 행, 열, 2x2 박스에 <strong>1~4</strong>를 한 번씩!<br>난이도가 점점 올라갑니다</p>
+            </div>
+            <div class="sdk-difficulty" id="sdk-difficulty">
+                <span class="sdk-diff-badge" id="sdk-diff-badge">EASY</span>
             </div>
             <div class="sdk-progress-bar">
-                <div class="sdk-pip" id="sdk-pip-0">1</div>
+                <div class="sdk-pip" id="sdk-pip-0"><span class="pip-num">1</span><span class="pip-label">Easy</span></div>
                 <div class="sdk-pip-line"></div>
-                <div class="sdk-pip" id="sdk-pip-1">2</div>
+                <div class="sdk-pip" id="sdk-pip-1"><span class="pip-num">2</span><span class="pip-label">Normal</span></div>
                 <div class="sdk-pip-line"></div>
-                <div class="sdk-pip" id="sdk-pip-2">3</div>
+                <div class="sdk-pip" id="sdk-pip-2"><span class="pip-num">3</span><span class="pip-label">Hard</span></div>
             </div>
             <div class="sudoku-board" id="sudoku-board"></div>
             <div class="sdk-numpad">
@@ -430,19 +433,53 @@
 
 /* === 스도쿠 === */
 .sdk-header { margin-bottom: 12px; }
+/* 난이도 배지 */
+.sdk-difficulty { margin-bottom: 10px; }
+.sdk-diff-badge {
+    display: inline-block; padding: 4px 16px; border-radius: 20px;
+    font-size: 12px; font-weight: 800; letter-spacing: 1px;
+    transition: all 0.4s cubic-bezier(0.34,1.56,0.64,1);
+}
+.sdk-diff-badge.diff-easy { background: linear-gradient(135deg, #43e97b, #38f9d7); color: #1a1a2e; }
+.sdk-diff-badge.diff-normal { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+.sdk-diff-badge.diff-hard { background: linear-gradient(135deg, #f5576c, #ff6b6b); color: white;
+    animation: hard-pulse 1.5s ease-in-out infinite; }
+@keyframes hard-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(245,87,108,0.4); }
+    50% { box-shadow: 0 0 16px 4px rgba(245,87,108,0.3); }
+}
+.sdk-diff-badge.diff-up {
+    animation: diff-level-up 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes diff-level-up {
+    0% { transform: scale(0.5) rotateX(90deg); opacity: 0; }
+    50% { transform: scale(1.3) rotateX(-10deg); }
+    100% { transform: scale(1) rotateX(0); opacity: 1; }
+}
+
 .sdk-progress-bar {
     display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 18px;
 }
 .sdk-pip {
-    width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 50%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
     font-size: 13px; font-weight: 800; background: #e8e8f0; color: #999;
     transition: all 0.4s cubic-bezier(0.34,1.56,0.64,1);
-    border: 2px solid transparent;
+    border: 2px solid transparent; position: relative;
 }
-.sdk-pip.active { background: #667eea; color: white; border-color: #667eea; transform: scale(1.15);
-    box-shadow: 0 0 12px rgba(102,126,234,0.4); }
+.pip-num { font-size: 14px; line-height: 1; }
+.pip-label {
+    position: absolute; bottom: -16px; font-size: 9px; font-weight: 700;
+    white-space: nowrap; opacity: 0; transition: opacity 0.3s;
+    color: #999;
+}
+.sdk-pip.active .pip-label, .sdk-pip.done .pip-label { opacity: 1; }
+.sdk-pip.active { background: #667eea; color: white; border-color: #667eea; transform: scale(1.2);
+    box-shadow: 0 0 14px rgba(102,126,234,0.45); }
+.sdk-pip.active .pip-label { color: #667eea; }
 .sdk-pip.done { background: #22c55e; color: white; border-color: #22c55e; }
-.sdk-pip-line { width: 32px; height: 3px; background: #e8e8f0; transition: background 0.4s; }
+.sdk-pip.done .pip-label { color: #22c55e; }
+.sdk-pip-line { width: 36px; height: 3px; background: #e8e8f0; transition: background 0.4s; }
 .sdk-pip-line.done { background: #22c55e; }
 
 .sudoku-board {
@@ -662,19 +699,53 @@
 // === 홀수 일자 쉬는날 + 미니게임 ===
 let activeGameType = null;
 
-// ============ 스도쿠 ============
-const SUDOKU_PUZZLES = [
-    { solution: [1,2,3,4, 3,4,1,2, 2,3,4,1, 4,1,2,3], given: [0,1,3, 4,5, 8,11, 13,15] },
-    { solution: [2,3,4,1, 4,1,2,3, 1,4,3,2, 3,2,1,4], given: [1,3, 4,6, 9,10, 12,14] },
-    { solution: [3,1,4,2, 4,2,3,1, 1,3,2,4, 2,4,1,3], given: [0,2, 5,7, 8,10, 13,15] },
-    { solution: [4,2,1,3, 1,3,4,2, 3,4,2,1, 2,1,3,4], given: [1,3, 4,7, 8,11, 12,14] },
-    { solution: [2,4,3,1, 3,1,2,4, 4,2,1,3, 1,3,4,2], given: [0,2, 5,6, 9,11, 12,15] },
-    { solution: [1,3,2,4, 2,4,1,3, 3,1,4,2, 4,2,3,1], given: [0,3, 5,6, 9,10, 12,15] },
+// ============ 스도쿠 (난이도별) ============
+// 솔루션 풀 (다양한 4x4 정답)
+const SOLUTIONS = [
+    [1,2,3,4, 3,4,1,2, 2,3,4,1, 4,1,2,3],
+    [2,3,4,1, 4,1,2,3, 1,4,3,2, 3,2,1,4],
+    [3,1,4,2, 4,2,3,1, 1,3,2,4, 2,4,1,3],
+    [4,2,1,3, 1,3,4,2, 3,4,2,1, 2,1,3,4],
+    [2,4,3,1, 3,1,2,4, 4,2,1,3, 1,3,4,2],
+    [1,3,2,4, 2,4,1,3, 3,1,4,2, 4,2,3,1],
+    [4,1,3,2, 2,3,4,1, 1,4,2,3, 3,2,1,4],
+    [3,4,2,1, 1,2,3,4, 4,1,2,3, 2,3,4,1],  // added extra solutions for variety
 ];
+
+// given 인덱스를 난이도에 따라 생성 (각 2x2 박스에서 최소 1개 보장)
+function generateGiven(solution, count) {
+    // 4개 박스: [0,1,4,5], [2,3,6,7], [8,9,12,13], [10,11,14,15]
+    const boxes = [[0,1,4,5],[2,3,6,7],[8,9,12,13],[10,11,14,15]];
+    const given = new Set();
+    // 각 박스에서 최소 1개
+    boxes.forEach(box => {
+        const shuffled = box.sort(() => Math.random()-0.5);
+        given.add(shuffled[0]);
+    });
+    // 나머지 랜덤 추가
+    const remaining = Array.from({length:16}, (_,i) => i).filter(i => !given.has(i)).sort(() => Math.random()-0.5);
+    while (given.size < count && remaining.length) {
+        given.add(remaining.shift());
+    }
+    return [...given].sort((a,b) => a-b);
+}
+
+// 난이도 설정: given 셀 개수
+const DIFFICULTY = [
+    { name: 'EASY',   label: 'Easy',   givenCount: 10, cls: 'diff-easy' },
+    { name: 'NORMAL', label: 'Normal', givenCount: 7,  cls: 'diff-normal' },
+    { name: 'HARD',   label: 'Hard!',  givenCount: 5,  cls: 'diff-hard' },
+];
+
 let sudokuRound = 0, sudokuPuzzles = [], currentPuzzle = null, selectedCell = null;
 
 function pickSudokuPuzzles() {
-    sudokuPuzzles = [...SUDOKU_PUZZLES].sort(() => Math.random() - 0.5).slice(0, 3);
+    const shuffled = [...SOLUTIONS].sort(() => Math.random() - 0.5);
+    sudokuPuzzles = DIFFICULTY.map((diff, i) => ({
+        solution: shuffled[i % shuffled.length],
+        given: generateGiven(shuffled[i % shuffled.length], diff.givenCount),
+        difficulty: diff,
+    }));
     sudokuRound = 0;
 }
 
@@ -688,6 +759,12 @@ function updateSdkPips() {
     document.querySelectorAll('.sdk-pip-line').forEach((line, i) => {
         line.classList.toggle('done', i < sudokuRound);
     });
+    // 난이도 배지 업데이트
+    const diff = sudokuPuzzles[Math.min(sudokuRound, 2)].difficulty;
+    const badge = document.getElementById('sdk-diff-badge');
+    badge.textContent = diff.name;
+    badge.className = 'sdk-diff-badge ' + diff.cls;
+    if (sudokuRound > 0) badge.classList.add('diff-up');
 }
 
 function renderSudoku() {
@@ -774,15 +851,17 @@ function checkSudoku() {
     if (!allFilled) { msg.textContent = '빈 칸을 모두 채워주세요!'; msg.className = 'game-msg msg-error'; return; }
     if (!allCorrect) { msg.textContent = '틀린 칸이 있어요! 빨간 칸을 확인해보세요'; msg.className = 'game-msg msg-error'; return; }
 
+    const clearedDiff = sudokuPuzzles[sudokuRound].difficulty.name;
     sudokuRound++;
     updateSdkPips();
     if (sudokuRound >= 3) {
-        msg.textContent = '3판 모두 클리어!';
+        msg.textContent = 'HARD 클리어! 전 난이도 정복!';
         msg.className = 'game-msg msg-success';
         document.getElementById('sudoku-check').disabled = true;
         setTimeout(() => showClearScreen('sudoku'), 800);
     } else {
-        msg.textContent = `${sudokuRound}/3 클리어! 다음 판...`;
+        const nextDiff = sudokuPuzzles[sudokuRound].difficulty.name;
+        msg.textContent = `${clearedDiff} 클리어! 다음: ${nextDiff}`;
         msg.className = 'game-msg msg-success';
         setTimeout(renderSudoku, 900);
     }
