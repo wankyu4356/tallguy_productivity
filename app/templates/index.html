@@ -5,20 +5,53 @@
 <div class="restday-overlay" id="restday-overlay" style="display:none;">
     <div class="restday-backdrop"></div>
     <div class="restday-popup" id="restday-popup">
-        <div class="restday-emoji">&#x1F634;</div>
-        <h2 class="restday-title">오늘은 <span class="restday-highlight" id="restday-keyword">쉬는날</span>입니다</h2>
-        <p class="restday-sub">홀수 일자에는 원래 쉬어야 합니다.<br>진짜로요. 진심이에요.</p>
-        <div class="restday-hints" id="restday-hints">
-            <p class="restday-hint restday-hint-1">...근데 꼭 해야 하면</p>
-            <p class="restday-hint restday-hint-2">위에 <strong>"쉬는날"</strong>을 클릭해보세요</p>
-            <p class="restday-hint restday-hint-3">&#x1F447;&#x1F447;&#x1F447; 아니 위에요 위 &#x1F446;&#x1F446;&#x1F446;</p>
+        <!-- 1단계: 쉬는날 안내 -->
+        <div id="restday-intro">
+            <div class="restday-emoji">&#x1F634;</div>
+            <h2 class="restday-title">오늘은 <span class="restday-highlight" id="restday-keyword">쉬는날</span>입니다</h2>
+            <p class="restday-sub">홀수 일자에는 원래 쉬어야 합니다.<br>진짜로요. 진심이에요.</p>
+            <div class="restday-hints" id="restday-hints">
+                <p class="restday-hint restday-hint-1">...근데 꼭 해야 하면</p>
+                <p class="restday-hint restday-hint-2">위에 <strong>"쉬는날"</strong>을 클릭해보세요</p>
+                <p class="restday-hint restday-hint-3">&#x1F447;&#x1F447;&#x1F447; 아니 위에요 위 &#x1F446;&#x1F446;&#x1F446;</p>
+            </div>
+            <div class="restday-zzz" id="restday-zzz">
+                <span class="zzz zzz-1">z</span>
+                <span class="zzz zzz-2">z</span>
+                <span class="zzz zzz-3">Z</span>
+                <span class="zzz zzz-4">Z</span>
+                <span class="zzz zzz-5">z</span>
+            </div>
         </div>
-        <div class="restday-zzz" id="restday-zzz">
-            <span class="zzz zzz-1">z</span>
-            <span class="zzz zzz-2">z</span>
-            <span class="zzz zzz-3">Z</span>
-            <span class="zzz zzz-4">Z</span>
-            <span class="zzz zzz-5">z</span>
+
+        <!-- 2단계: 스도쿠 게임 -->
+        <div id="restday-sudoku" style="display:none;">
+            <div class="game-emoji">&#x1F9E9;</div>
+            <h2 class="game-title">스도쿠 챌린지</h2>
+            <p class="game-sub">4x4 스도쿠 <strong>3판</strong>을 모두 풀어야 합니다<br><span id="sudoku-progress">1 / 3</span></p>
+            <div class="sudoku-board" id="sudoku-board"></div>
+            <div class="game-msg" id="sudoku-msg"></div>
+            <button class="game-btn" id="sudoku-check" onclick="checkSudoku()">&#x2705; 정답 확인</button>
+        </div>
+
+        <!-- 2단계: 슬롯머신 게임 -->
+        <div id="restday-slot" style="display:none;">
+            <div class="game-emoji">&#x1F3B0;</div>
+            <h2 class="game-title">LUCKY 777</h2>
+            <p class="game-sub"><strong>777</strong>이 나와야 통과!<br><span id="slot-attempts">시도: 0회</span></p>
+            <div class="slot-machine">
+                <div class="slot-reel-wrap">
+                    <div class="slot-reel" id="reel-0"><span>7</span></div>
+                </div>
+                <div class="slot-reel-wrap">
+                    <div class="slot-reel" id="reel-1"><span>7</span></div>
+                </div>
+                <div class="slot-reel-wrap">
+                    <div class="slot-reel" id="reel-2"><span>7</span></div>
+                </div>
+            </div>
+            <div class="game-msg" id="slot-msg"></div>
+            <button class="game-btn slot-lever" id="slot-spin" onclick="spinSlots()">&#x1F4A5; 돌려!</button>
         </div>
     </div>
 </div>
@@ -196,11 +229,13 @@
 .restday-popup {
     position: relative; z-index: 1;
     background: white; border-radius: 24px; padding: 48px 40px 40px;
-    text-align: center; max-width: 420px; width: 90%;
+    text-align: center; max-width: 480px; width: 90%;
     box-shadow: 0 24px 80px rgba(0,0,0,0.3);
     animation: popup-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
     overflow: visible;
+    transition: max-width 0.4s ease;
 }
+.restday-popup.game-mode { max-width: 420px; }
 @keyframes popup-bounce {
     0% { opacity: 0; transform: scale(0.3) translateY(60px); }
     50% { opacity: 1; transform: scale(1.08) translateY(-10px); }
@@ -308,9 +343,365 @@
     0% { opacity: 1; transform: translateX(-50%) translateY(0); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
+
+/* === 미니게임 공통 === */
+.game-emoji { font-size: 48px; margin-bottom: 12px; }
+.game-title { font-size: 24px; font-weight: 800; color: #1a1a2e; margin: 0 0 8px; }
+.game-sub { font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 20px; }
+.game-sub strong { color: #667eea; }
+.game-btn {
+    display: inline-block; margin-top: 16px; padding: 12px 32px;
+    background: linear-gradient(135deg, #667eea, #764ba2); color: white;
+    border: none; border-radius: 30px; font-size: 16px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 16px rgba(102,126,234,0.3);
+}
+.game-btn:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 6px 24px rgba(102,126,234,0.4); }
+.game-btn:active { transform: translateY(1px) scale(0.97); }
+.game-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.game-msg {
+    min-height: 28px; font-size: 14px; font-weight: 600; margin-top: 12px;
+    transition: all 0.3s;
+}
+.game-msg.msg-error { color: #f5576c; animation: msg-shake 0.4s ease; }
+.game-msg.msg-success { color: #43e97b; animation: msg-pop 0.4s ease; }
+.game-msg.msg-info { color: #667eea; }
+@keyframes msg-shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-8px); }
+    40% { transform: translateX(8px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+@keyframes msg-pop {
+    0% { transform: scale(0.5); opacity: 0; }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* === 스도쿠 === */
+.sudoku-board {
+    display: inline-grid; grid-template-columns: repeat(4, 52px); grid-template-rows: repeat(4, 52px);
+    gap: 2px; background: #1a1a2e; border: 3px solid #1a1a2e; border-radius: 12px;
+    overflow: hidden; margin: 0 auto;
+}
+.sudoku-cell {
+    width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; background: white; color: #1a1a2e;
+    border: none; outline: none; text-align: center;
+    transition: background 0.2s, color 0.2s;
+}
+.sudoku-cell.given { background: #f0f0ff; color: #667eea; cursor: default; }
+.sudoku-cell.input-cell { cursor: pointer; background: #fff; }
+.sudoku-cell.input-cell:focus { background: #e8e8ff; }
+.sudoku-cell.input-cell:hover { background: #f0f0ff; }
+.sudoku-cell.wrong { background: #ffe0e0 !important; color: #f5576c !important; animation: cell-shake 0.3s ease; }
+.sudoku-cell.correct { background: #e0ffe8 !important; color: #43e97b !important; }
+/* 2x2 box borders */
+.sudoku-cell.box-right { border-right: 2px solid #1a1a2e; }
+.sudoku-cell.box-bottom { border-bottom: 2px solid #1a1a2e; }
+@keyframes cell-shake {
+    0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); }
+    50% { transform: translateX(3px); } 75% { transform: translateX(-2px); }
+}
+
+/* === 슬롯머신 === */
+.slot-machine {
+    display: flex; justify-content: center; gap: 12px; margin: 0 auto;
+    background: linear-gradient(180deg, #1a1a2e, #2d2b55);
+    padding: 24px 32px; border-radius: 20px;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,0.3), 0 8px 32px rgba(0,0,0,0.2);
+    position: relative;
+}
+.slot-machine::before {
+    content: ''; position: absolute; top: 50%; left: 12px; right: 12px; height: 2px;
+    background: rgba(255,215,0,0.4); transform: translateY(-50%);
+    box-shadow: 0 0 8px rgba(255,215,0,0.3);
+}
+.slot-reel-wrap {
+    width: 80px; height: 100px; overflow: hidden; border-radius: 12px;
+    background: white; position: relative;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.1);
+}
+.slot-reel {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; transition: none;
+}
+.slot-reel span {
+    font-size: 48px; font-weight: 900; color: #1a1a2e;
+    min-height: 100px; display: flex; align-items: center; justify-content: center;
+}
+.slot-reel.spinning span {
+    animation: reel-spin 0.08s linear infinite;
+}
+@keyframes reel-spin {
+    0% { transform: translateY(-30px); opacity: 0.3; }
+    50% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(30px); opacity: 0.3; }
+}
+.slot-reel.landed span {
+    animation: reel-land 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes reel-land {
+    0% { transform: translateY(-20px) scale(0.8); opacity: 0; }
+    60% { transform: translateY(4px) scale(1.15); }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.slot-lever {
+    background: linear-gradient(135deg, #f5576c, #ff6b6b) !important;
+    box-shadow: 0 4px 16px rgba(245,87,108,0.4) !important;
+}
+.slot-lever:hover { box-shadow: 0 6px 24px rgba(245,87,108,0.5) !important; }
+
+/* 777 축하 */
+.slot-win { animation: jackpot-flash 0.5s ease 3; }
+@keyframes jackpot-flash {
+    0%,100% { box-shadow: inset 0 4px 12px rgba(0,0,0,0.3), 0 8px 32px rgba(0,0,0,0.2); }
+    50% { box-shadow: inset 0 4px 12px rgba(0,0,0,0.3), 0 0 40px rgba(255,215,0,0.6), 0 0 80px rgba(255,215,0,0.3); }
+}
+.slot-win .slot-reel span { color: #f5576c; }
+.slot-reel.seven span { color: #f5576c; font-size: 56px; }
+
+/* 게임 전환 애니메이션 */
+.game-appear { animation: game-slide-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes game-slide-in {
+    0% { opacity: 0; transform: scale(0.8) translateY(20px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
 </style>
 <script>
-// === 홀수 일자 쉬는날 체크 ===
+// === 홀수 일자 쉬는날 체크 + 미니게임 ===
+// --- 스도쿠 퍼즐 데이터 (4x4, 숫자 1~4) ---
+const SUDOKU_PUZZLES = [
+    { solution: [1,2,3,4, 3,4,1,2, 2,3,4,1, 4,1,2,3], given: [0,1,3, 4,5, 8,11, 13,15] },
+    { solution: [2,3,4,1, 4,1,2,3, 1,4,3,2, 3,2,1,4], given: [1,3, 4,6, 9,10, 12,14] },
+    { solution: [3,1,4,2, 4,2,3,1, 1,3,2,4, 2,4,1,3], given: [0,2, 5,7, 8,10, 13,15] },
+    { solution: [4,2,1,3, 1,3,4,2, 3,4,2,1, 2,1,3,4], given: [1,3, 4,7, 8,11, 12,14] },
+    { solution: [2,4,3,1, 3,1,2,4, 4,2,1,3, 1,3,4,2], given: [0,2, 5,6, 9,11, 12,15] },
+    { solution: [1,3,2,4, 2,4,1,3, 3,1,4,2, 4,2,3,1], given: [0,3, 5,6, 9,10, 12,15] },
+];
+
+let sudokuRound = 0;
+let sudokuPuzzles = [];
+let currentPuzzle = null;
+
+function pickSudokuPuzzles() {
+    const shuffled = [...SUDOKU_PUZZLES].sort(() => Math.random() - 0.5);
+    sudokuPuzzles = shuffled.slice(0, 3);
+    sudokuRound = 0;
+}
+
+function renderSudoku() {
+    currentPuzzle = sudokuPuzzles[sudokuRound];
+    const board = document.getElementById('sudoku-board');
+    board.innerHTML = '';
+    document.getElementById('sudoku-progress').textContent = `${sudokuRound + 1} / 3`;
+    document.getElementById('sudoku-msg').textContent = '';
+    document.getElementById('sudoku-msg').className = 'game-msg';
+
+    for (let i = 0; i < 16; i++) {
+        const isGiven = currentPuzzle.given.includes(i);
+        const row = Math.floor(i / 4);
+        const col = i % 4;
+        let cls = 'sudoku-cell';
+        if (col === 1) cls += ' box-right';
+        if (row === 1) cls += ' box-bottom';
+
+        if (isGiven) {
+            const div = document.createElement('div');
+            div.className = cls + ' given';
+            div.textContent = currentPuzzle.solution[i];
+            board.appendChild(div);
+        } else {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.maxLength = 1;
+            input.className = cls + ' input-cell';
+            input.dataset.idx = i;
+            input.setAttribute('inputmode', 'numeric');
+            input.addEventListener('input', function(e) {
+                this.value = this.value.replace(/[^1-4]/g, '');
+            });
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') checkSudoku();
+            });
+            board.appendChild(input);
+        }
+    }
+}
+
+function checkSudoku() {
+    const cells = document.querySelectorAll('#sudoku-board .input-cell');
+    const msg = document.getElementById('sudoku-msg');
+    let allCorrect = true;
+    let allFilled = true;
+
+    cells.forEach(cell => {
+        const idx = parseInt(cell.dataset.idx);
+        const val = parseInt(cell.value);
+        cell.classList.remove('wrong', 'correct');
+
+        if (!cell.value) {
+            allFilled = false;
+            return;
+        }
+        if (val === currentPuzzle.solution[idx]) {
+            cell.classList.add('correct');
+        } else {
+            cell.classList.add('wrong');
+            allCorrect = false;
+        }
+    });
+
+    if (!allFilled) {
+        msg.textContent = '빈 칸을 모두 채워주세요!';
+        msg.className = 'game-msg msg-error';
+        return;
+    }
+
+    if (!allCorrect) {
+        msg.textContent = '틀린 칸이 있어요! 다시 확인해보세요 😅';
+        msg.className = 'game-msg msg-error';
+        return;
+    }
+
+    sudokuRound++;
+    if (sudokuRound >= 3) {
+        msg.textContent = '🎉 3판 모두 클리어! 대단해요!';
+        msg.className = 'game-msg msg-success';
+        document.getElementById('sudoku-check').disabled = true;
+        setTimeout(() => closeRestday(), 1500);
+    } else {
+        msg.textContent = `✅ ${sudokuRound}/3 클리어! 다음 판 준비...`;
+        msg.className = 'game-msg msg-success';
+        setTimeout(() => {
+            renderSudoku();
+        }, 1000);
+    }
+}
+
+// --- 슬롯머신 ---
+let slotSpinning = false;
+let slotAttempts = 0;
+const SLOT_SYMBOLS = ['1','2','3','4','5','6','7','8','9'];
+
+function spinSlots() {
+    if (slotSpinning) return;
+    slotSpinning = true;
+    slotAttempts++;
+    document.getElementById('slot-attempts').textContent = `시도: ${slotAttempts}회`;
+    document.getElementById('slot-msg').textContent = '';
+    document.getElementById('slot-msg').className = 'game-msg';
+    document.getElementById('slot-spin').disabled = true;
+
+    const reels = [
+        document.getElementById('reel-0'),
+        document.getElementById('reel-1'),
+        document.getElementById('reel-2'),
+    ];
+    const machine = document.querySelector('.slot-machine');
+    machine.classList.remove('slot-win');
+
+    // 결과 결정 (약 3% 확률로 777)
+    let results;
+    if (Math.random() < 0.03) {
+        results = [7, 7, 7];
+    } else {
+        results = [0,0,0].map(() => {
+            const r = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+            return parseInt(r);
+        });
+        // 777이 우연히 나오지 않게
+        if (results[0] === 7 && results[1] === 7 && results[2] === 7) {
+            results[2] = results[2] === 9 ? 1 : results[2] + 1;
+        }
+    }
+
+    // 스피닝 시작
+    reels.forEach(r => {
+        r.classList.remove('landed', 'seven');
+        r.classList.add('spinning');
+    });
+
+    // 빠르게 숫자 돌리기 (시각 효과)
+    const spinIntervals = reels.map((reel, i) => {
+        return setInterval(() => {
+            reel.querySelector('span').textContent = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        }, 60);
+    });
+
+    // 릴 순서대로 멈추기
+    const stopTimes = [1200, 2000, 2800];
+    reels.forEach((reel, i) => {
+        setTimeout(() => {
+            clearInterval(spinIntervals[i]);
+            reel.classList.remove('spinning');
+            reel.classList.add('landed');
+            reel.querySelector('span').textContent = results[i];
+            if (results[i] === 7) reel.classList.add('seven');
+
+            // 마지막 릴이 멈추면 결과 판정
+            if (i === 2) {
+                setTimeout(() => {
+                    const msg = document.getElementById('slot-msg');
+                    if (results[0] === 7 && results[1] === 7 && results[2] === 7) {
+                        machine.classList.add('slot-win');
+                        msg.innerHTML = '&#x1F389;&#x1F389;&#x1F389; JACKPOT! 777! &#x1F389;&#x1F389;&#x1F389;';
+                        msg.className = 'game-msg msg-success';
+                        document.getElementById('slot-spin').disabled = true;
+                        setTimeout(() => closeRestday(), 2000);
+                    } else if (results[0] === results[1] && results[1] === results[2]) {
+                        msg.textContent = `${results[0]}${results[1]}${results[2]}! 아깝다~ 777이 필요해요!`;
+                        msg.className = 'game-msg msg-info';
+                        slotSpinning = false;
+                        document.getElementById('slot-spin').disabled = false;
+                    } else if (results.includes(7)) {
+                        const count7 = results.filter(r => r === 7).length;
+                        msg.textContent = count7 === 2 ? '7이 2개! 거의 다 왔어요...!' : '7이 보인다... 계속!';
+                        msg.className = 'game-msg msg-info';
+                        slotSpinning = false;
+                        document.getElementById('slot-spin').disabled = false;
+                    } else {
+                        const nearMiss = [
+                            '다시! 다시!', '흠... 한 번 더!', '이번엔 될 거야!',
+                            '포기하면 편해요 (농담)', '운은 돌고 돈다!',
+                            '슬롯머신은 인내의 게임...', '이거 확률 얼마야 대체',
+                        ];
+                        msg.textContent = nearMiss[Math.floor(Math.random() * nearMiss.length)];
+                        msg.className = 'game-msg msg-error';
+                        slotSpinning = false;
+                        document.getElementById('slot-spin').disabled = false;
+                    }
+                }, 300);
+            }
+        }, stopTimes[i]);
+    });
+}
+
+// --- 쉬는날 오버레이 닫기 ---
+function closeRestday() {
+    const overlay = document.getElementById('restday-overlay');
+    const toast = document.createElement('div');
+    toast.className = 'restday-toast';
+    const toastMsgs = [
+        '쪼크쪼크... 알겠어요, 일하세요 &#x1F62A;',
+        '에이~ 쉬는날인데... 알겠습니다 &#x1F614;',
+        '오늘은 쉬라니까요... 아 진짜 일하게요? &#x1F612;',
+        '월급루팡은 어디갔나... 열정 넘치시네요 &#x1F4AA;',
+        '고생 끝에 낙이 온다! 이제 진짜 일하세요 &#x1F60F;',
+    ];
+    toast.innerHTML = toastMsgs[Math.floor(Math.random() * toastMsgs.length)];
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+
+    overlay.classList.add('restday-closing');
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        overlay.classList.remove('restday-closing');
+    }, 500);
+}
+
+// --- 초기화 ---
 (function() {
     const today = new Date().getDate();
     if (today % 2 === 1) {
@@ -318,33 +709,38 @@
         overlay.style.display = 'flex';
 
         const keyword = document.getElementById('restday-keyword');
-        const messages = [
-            '쪼크쪼크... 알겠어요, 일하세요 &#x1F62A;',
-            '에이~ 쉬는날인데... 알겠습니다 &#x1F614;',
-            '오늘은 쉬라니까요... 아 진짜 일하게요? &#x1F612;',
-            '월급루팡은 어디갔나... 열정 넘치시네요 &#x1F4AA;',
-            '쉬는날에도 일하다니... 사장님이 좋아합니다 &#x1F60F;',
-        ];
-        const randomMsg = messages[Math.floor(Math.random() * messages.length)];
-
-        let clickCount = 0;
+        let clicked = false;
         keyword.addEventListener('click', function() {
-            clickCount++;
-            if (clickCount === 1) {
-                // 쪼크쪼크 토스트 표시
-                const toast = document.createElement('div');
-                toast.className = 'restday-toast';
-                toast.innerHTML = randomMsg;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 2500);
+            if (clicked) return;
+            clicked = true;
 
-                // 팝업 닫기 애니메이션
-                overlay.classList.add('restday-closing');
-                setTimeout(() => {
-                    overlay.style.display = 'none';
-                    overlay.classList.remove('restday-closing');
-                }, 500);
-            }
+            const popup = document.getElementById('restday-popup');
+            const intro = document.getElementById('restday-intro');
+
+            // 랜덤으로 게임 선택
+            const gameType = Math.random() < 0.5 ? 'sudoku' : 'slot';
+
+            // intro 사라지기
+            intro.style.transition = 'opacity 0.3s, transform 0.3s';
+            intro.style.opacity = '0';
+            intro.style.transform = 'scale(0.9) translateY(-10px)';
+
+            setTimeout(() => {
+                intro.style.display = 'none';
+                popup.classList.add('game-mode');
+
+                if (gameType === 'sudoku') {
+                    pickSudokuPuzzles();
+                    const el = document.getElementById('restday-sudoku');
+                    el.style.display = 'block';
+                    el.classList.add('game-appear');
+                    renderSudoku();
+                } else {
+                    const el = document.getElementById('restday-slot');
+                    el.style.display = 'block';
+                    el.classList.add('game-appear');
+                }
+            }, 350);
         });
     }
 })();
