@@ -316,6 +316,25 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
     cls = data.get("classification", {})
     article_order = data.get("article_order", [])
 
+    # LLM이 반환한 ID를 실제 ID와 매칭 (공백, 따옴표 제거 등 정규화)
+    valid_ids = {a.info.id for a in articles}
+    id_lookup = {a.info.id.strip(): a.info.id for a in articles}
+
+    def normalize_ids(raw_ids):
+        """LLM이 반환한 ID 리스트를 정규화하여 실제 ID와 매칭."""
+        if not isinstance(raw_ids, list):
+            return []
+        result = []
+        for rid in raw_ids:
+            rid = str(rid).strip().strip('"').strip("'")
+            if rid in valid_ids:
+                result.append(rid)
+            elif rid in id_lookup:
+                result.append(id_lookup[rid])
+            else:
+                logger.warning(f"Classification: unmatched article ID '{rid}'")
+        return result
+
     deal = cls.get("deal", {})
     industry = cls.get("industry", {})
     fundraising = cls.get("fundraising", [])
@@ -326,15 +345,15 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
             subcategories=[
                 ClassificationSubcategory(
                     name="경영권 인수 및 매각, 투자 유치",
-                    articles=deal.get("acquisition_investment", []),
+                    articles=normalize_ids(deal.get("acquisition_investment", [])),
                 ),
                 ClassificationSubcategory(
                     name="투자회수",
-                    articles=deal.get("exit", []),
+                    articles=normalize_ids(deal.get("exit", [])),
                 ),
                 ClassificationSubcategory(
                     name="기타",
-                    articles=deal.get("etc", []),
+                    articles=normalize_ids(deal.get("etc", [])),
                 ),
             ],
         ),
@@ -346,35 +365,52 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
                     sub_items=[
                         ClassificationSubItem(
                             name="환경/폐기물",
-                            articles=industry.get("environment_waste", []),
+                            articles=normalize_ids(industry.get("environment_waste", [])),
                         ),
                         ClassificationSubItem(
                             name="건설/부동산",
-                            articles=industry.get("construction_realestate", []),
+                            articles=normalize_ids(industry.get("construction_realestate", [])),
                         ),
                         ClassificationSubItem(
                             name="바이오/헬스케어",
-                            articles=industry.get("bio_healthcare", []),
+                            articles=normalize_ids(industry.get("bio_healthcare", [])),
                         ),
                     ],
                 ),
                 ClassificationSubcategory(
                     name="기타 주요 산업 관련 업계 동향",
-                    articles=industry.get("etc", []),
+                    articles=normalize_ids(industry.get("etc", [])),
                 ),
             ],
         ),
         ClassificationCategory(
             name="Fundraising, LP 이슈 및 GP 선정",
-            articles=fundraising if isinstance(fundraising, list) else [],
+            articles=normalize_ids(fundraising if isinstance(fundraising, list) else []),
         ),
     ]
 
     # Ensure all article IDs are in article_order
     all_ids = {a.info.id for a in articles}
-    ordered_ids = [aid for aid in article_order if aid in all_ids]
+    ordered_ids = normalize_ids(article_order)
     missing = all_ids - set(ordered_ids)
     ordered_ids.extend(missing)
+
+    # 분류에 포함되지 않은 기사는 첫 번째 카테고리에 추가
+    classified_ids = set()
+    for cat in categories:
+        classified_ids.update(cat.articles)
+        for sub in cat.subcategories:
+            classified_ids.update(sub.articles)
+            for si in sub.sub_items:
+                classified_ids.update(si.articles)
+
+    unclassified = all_ids - classified_ids
+    if unclassified:
+        logger.warning(f"Classification: {len(unclassified)} articles not classified, adding to Deal > 기타")
+        # Deal > 기타 subcategory에 추가
+        if categories and categories[0].subcategories:
+            etc_sub = categories[0].subcategories[-1]  # "기타"
+            etc_sub.articles.extend(list(unclassified))
 
     return ClassifiedOutput(categories=categories, article_order=ordered_ids)
 

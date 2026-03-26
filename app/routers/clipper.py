@@ -81,11 +81,11 @@ async def _crawl_task(session_id: str):
         ctx = await bm.new_context(headless=False)
 
         # Manual login — opens visible browser for user to log in
-        session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
+        session.progress_messages.append("브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         login_ok = await login(ctx)
         if not login_ok:
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
+            session.error = "딜사이트플러스 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
             return
 
         session.progress_messages.append("로그인 성공!")
@@ -237,14 +237,14 @@ async def _generate_task(session_id: str):
             session.progress_messages.append(msg)
 
         # Step 1: Fetch articles and generate individual PDFs
-        on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
+        on_progress("Step 1/5: 브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         ctx = await bm.new_context(headless=False)
 
         from app.services.crawler import login
         login_ok = await login(ctx)
         if not login_ok:
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 타임아웃."
+            session.error = "딜사이트플러스 로그인 타임아웃."
             return
         on_progress("로그인 성공! 기사 본문 수집 및 PDF 생성 중...")
 
@@ -294,18 +294,18 @@ async def _finalize_task(session_id: str):
 
         # Step 3: Merge PDFs
         on_progress("Step 3/5: PDF 합본 중...")
-        merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
+        merged_pdf_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.pdf"
         merge_pdfs(classification, articles_with_content, merged_pdf_path, on_progress)
 
         # Step 4: Generate DOCX
         on_progress("Step 4/5: DOCX 목차 생성 중...")
-        docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
+        docx_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.docx"
         generate_docx(classification, articles_with_content, docx_path, date_str)
         on_progress("DOCX 생성 완료!")
 
         # Step 5: Package ZIP
         on_progress("Step 5/5: ZIP 파일 생성 중...")
-        zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
+        zip_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.zip"
         create_zip(articles_with_content, merged_pdf_path, docx_path, zip_path, date_str)
 
         session.zip_path = str(zip_path)
@@ -330,11 +330,39 @@ async def get_classification(session_id: str):
 
     articles_map = {a.info.id: a for a in session.articles_with_content}
 
+    # 디버그: ID 매칭 로그
+    all_cls_ids = set()
+    for cat in session.classification.categories:
+        all_cls_ids.update(cat.articles)
+        for sub in cat.subcategories:
+            all_cls_ids.update(sub.articles)
+            for si in sub.sub_items:
+                all_cls_ids.update(si.articles)
+
+    matched = all_cls_ids & set(articles_map.keys())
+    unmatched = all_cls_ids - set(articles_map.keys())
+    if unmatched:
+        logger.warning(
+            f"Classification ID mismatch: {len(unmatched)} unmatched out of {len(all_cls_ids)}. "
+            f"Unmatched IDs (sample): {list(unmatched)[:5]}. "
+            f"Available IDs (sample): {list(articles_map.keys())[:5]}"
+        )
+
     def article_detail(aid: str):
         a = articles_map.get(aid)
         if not a:
-            return None
-        # Build a short summary: first 150 chars of content
+            # 부분 매칭 시도: ID가 앞뒤 공백이나 유사 형태일 수 있음
+            aid_stripped = aid.strip()
+            if aid_stripped != aid:
+                a = articles_map.get(aid_stripped)
+            if not a:
+                # URL에서 추출한 숫자 ID로 재시도
+                for key, val in articles_map.items():
+                    if key.strip() == aid_stripped:
+                        a = val
+                        break
+            if not a:
+                return None
         summary = a.info.summary or ""
         if not summary and a.content:
             summary = a.content[:200].replace("\n", " ").strip()
@@ -349,26 +377,35 @@ async def get_classification(session_id: str):
         }
 
     tree = []
+    total_articles = 0
     for cat in session.classification.categories:
+        cat_articles = [d for aid in cat.articles if (d := article_detail(aid))]
         cat_data = {
             "name": cat.name,
-            "articles": [article_detail(aid) for aid in cat.articles if article_detail(aid)],
+            "articles": cat_articles,
             "subcategories": [],
         }
+        total_articles += len(cat_articles)
         for sub in cat.subcategories:
+            sub_articles = [d for aid in sub.articles if (d := article_detail(aid))]
             sub_data = {
                 "name": sub.name,
-                "articles": [article_detail(aid) for aid in sub.articles if article_detail(aid)],
+                "articles": sub_articles,
                 "sub_items": [],
             }
+            total_articles += len(sub_articles)
             for si in sub.sub_items:
+                si_articles = [d for aid in si.articles if (d := article_detail(aid))]
                 si_data = {
                     "name": si.name,
-                    "articles": [article_detail(aid) for aid in si.articles if article_detail(aid)],
+                    "articles": si_articles,
                 }
+                total_articles += len(si_articles)
                 sub_data["sub_items"].append(si_data)
             cat_data["subcategories"].append(sub_data)
         tree.append(cat_data)
+
+    logger.info(f"Classification tree: {total_articles} articles resolved out of {len(all_cls_ids)} classified IDs")
 
     return {"status": session.status.value, "tree": tree}
 

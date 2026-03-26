@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Index 검수 - 더벨 News Clipper{% endblock %}
+{% block title %}Index 검수 - 딜사이트플러스 News Clipper{% endblock %}
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 {% endblock %}
@@ -42,10 +42,56 @@ let treeData = null;
 const allSortables = [];
 
 async function loadClassification() {
-    const res = await fetch(`/api/classification/${SESSION_ID}`);
-    const data = await res.json();
-    treeData = data.tree;
-    renderTree(treeData);
+    const container = document.getElementById('classification-tree');
+    try {
+        const res = await fetch(`/api/classification/${SESSION_ID}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
+                <h3 style="color:var(--error);">분류 데이터를 불러올 수 없습니다</h3>
+                <p>${err.detail || '서버 오류 (' + res.status + ')'}</p>
+                <button class="btn btn-primary" onclick="loadClassification()" style="margin-top:12px;">다시 시도</button>
+            </div>`;
+            return;
+        }
+        const data = await res.json();
+        treeData = data.tree;
+        if (!treeData || !treeData.length) {
+            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
+                <h3>분류된 기사가 없습니다</h3>
+                <p>AI 분류 결과가 비어있습니다. 이전 단계로 돌아가 다시 시도해주세요.</p>
+                <a href="/" class="btn btn-primary" style="margin-top:12px;">처음으로 돌아가기</a>
+            </div>`;
+            return;
+        }
+        // 기사가 하나도 매칭 안 되는 경우 체크
+        let totalArticles = 0;
+        treeData.forEach(cat => {
+            totalArticles += (cat.articles || []).length;
+            (cat.subcategories || []).forEach(sub => {
+                totalArticles += (sub.articles || []).length;
+                (sub.sub_items || []).forEach(si => {
+                    totalArticles += (si.articles || []).length;
+                });
+            });
+        });
+        if (totalArticles === 0) {
+            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
+                <h3 style="color:var(--error);">기사 매칭 오류</h3>
+                <p>분류는 완료되었으나 기사 데이터와 매칭되지 않았습니다.<br>
+                이전 단계에서 다시 시도해주세요.</p>
+                <a href="/" class="btn btn-primary" style="margin-top:12px;">처음으로 돌아가기</a>
+            </div>`;
+            return;
+        }
+        renderTree(treeData);
+    } catch (e) {
+        container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
+            <h3 style="color:var(--error);">네트워크 오류</h3>
+            <p>${e.message}</p>
+            <button class="btn btn-primary" onclick="loadClassification()" style="margin-top:12px;">다시 시도</button>
+        </div>`;
+    }
 }
 
 function renderTree(tree) {
