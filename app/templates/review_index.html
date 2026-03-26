@@ -76,10 +76,22 @@ async function loadClassification() {
             });
         });
         if (totalArticles === 0) {
+            const dbg = data.debug || {};
             container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
                 <h3 style="color:var(--error);">기사 매칭 오류</h3>
-                <p>분류는 완료되었으나 기사 데이터와 매칭되지 않았습니다.<br>
-                이전 단계에서 다시 시도해주세요.</p>
+                <p>분류는 완료되었으나 기사 데이터와 매칭되지 않았습니다.</p>
+                <details style="text-align:left; margin:16px auto; max-width:500px; font-size:13px; color:#666;">
+                    <summary style="cursor:pointer; font-weight:600;">디버그 정보 보기</summary>
+                    <pre style="background:#f5f5f5; padding:12px; border-radius:8px; overflow-x:auto; margin-top:8px; white-space:pre-wrap;">분류된 ID 수: ${dbg.classified_ids_total || '?'}
+매칭 성공: ${dbg.matched || 0}
+articles_with_content: ${dbg.articles_with_content_count || '?'}
+
+매칭 실패 ID (샘플):
+${(dbg.unmatched_sample || []).join('\\n') || '(없음)'}
+
+실제 기사 ID (샘플):
+${(dbg.available_ids_sample || []).join('\\n') || '(없음)'}</pre>
+                </details>
                 <a href="/" class="btn btn-primary" style="margin-top:12px;">처음으로 돌아가기</a>
             </div>`;
             return;

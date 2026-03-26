@@ -328,41 +328,56 @@ async def get_classification(session_id: str):
     if not session.classification:
         raise HTTPException(400, "Classification not ready")
 
+    import re as _re
     articles_map = {a.info.id: a for a in session.articles_with_content}
+    # 숫자/hex만 추출한 역매핑 (LLM이 괄호/공백 포함해서 반환할 때 대비)
+    id_by_digits = {}
+    for a in session.articles_with_content:
+        digits = _re.sub(r'[^0-9a-fA-F]', '', a.info.id)
+        if digits:
+            id_by_digits[digits] = a.info.id
+
+    def resolve_id(aid: str) -> str | None:
+        """LLM이 반환한 ID를 실제 article ID로 변환."""
+        aid = str(aid).strip().strip('"').strip("'")
+        if aid in articles_map:
+            return aid
+        cleaned = aid.strip('[]').strip()
+        if cleaned in articles_map:
+            return cleaned
+        digits = _re.sub(r'[^0-9a-fA-F]', '', aid)
+        if digits and digits in id_by_digits:
+            return id_by_digits[digits]
+        for vid in articles_map:
+            if vid in aid or aid in vid:
+                return vid
+        return None
 
     # 디버그: ID 매칭 로그
-    all_cls_ids = set()
+    all_cls_ids = []
     for cat in session.classification.categories:
-        all_cls_ids.update(cat.articles)
+        all_cls_ids.extend(cat.articles)
         for sub in cat.subcategories:
-            all_cls_ids.update(sub.articles)
+            all_cls_ids.extend(sub.articles)
             for si in sub.sub_items:
-                all_cls_ids.update(si.articles)
+                all_cls_ids.extend(si.articles)
 
-    matched = all_cls_ids & set(articles_map.keys())
-    unmatched = all_cls_ids - set(articles_map.keys())
-    if unmatched:
+    resolved = [resolve_id(aid) for aid in all_cls_ids]
+    matched_count = sum(1 for r in resolved if r)
+    unmatched_raw = [aid for aid, r in zip(all_cls_ids, resolved) if not r]
+    if unmatched_raw:
         logger.warning(
-            f"Classification ID mismatch: {len(unmatched)} unmatched out of {len(all_cls_ids)}. "
-            f"Unmatched IDs (sample): {list(unmatched)[:5]}. "
-            f"Available IDs (sample): {list(articles_map.keys())[:5]}"
+            f"Classification ID mismatch: {len(unmatched_raw)}/{len(all_cls_ids)} unmatched. "
+            f"Unmatched: {unmatched_raw[:5]}. "
+            f"Available: {list(articles_map.keys())[:5]}"
         )
+    logger.info(f"Classification ID resolve: {matched_count}/{len(all_cls_ids)} matched")
 
     def article_detail(aid: str):
-        a = articles_map.get(aid)
-        if not a:
-            # 부분 매칭 시도: ID가 앞뒤 공백이나 유사 형태일 수 있음
-            aid_stripped = aid.strip()
-            if aid_stripped != aid:
-                a = articles_map.get(aid_stripped)
-            if not a:
-                # URL에서 추출한 숫자 ID로 재시도
-                for key, val in articles_map.items():
-                    if key.strip() == aid_stripped:
-                        a = val
-                        break
-            if not a:
-                return None
+        real_id = resolve_id(aid)
+        if not real_id:
+            return None
+        a = articles_map[real_id]
         summary = a.info.summary or ""
         if not summary and a.content:
             summary = a.content[:200].replace("\n", " ").strip()
@@ -407,7 +422,17 @@ async def get_classification(session_id: str):
 
     logger.info(f"Classification tree: {total_articles} articles resolved out of {len(all_cls_ids)} classified IDs")
 
-    return {"status": session.status.value, "tree": tree}
+    return {
+        "status": session.status.value,
+        "tree": tree,
+        "debug": {
+            "classified_ids_total": len(all_cls_ids),
+            "matched": matched_count,
+            "unmatched_sample": unmatched_raw[:10],
+            "available_ids_sample": list(articles_map.keys())[:10],
+            "articles_with_content_count": len(session.articles_with_content),
+        }
+    }
 
 
 class ConfirmIndexRequest(BaseModel):

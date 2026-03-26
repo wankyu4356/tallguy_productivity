@@ -316,9 +316,15 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
     cls = data.get("classification", {})
     article_order = data.get("article_order", [])
 
-    # LLM이 반환한 ID를 실제 ID와 매칭 (공백, 따옴표 제거 등 정규화)
+    # LLM이 반환한 ID를 실제 ID와 매칭 (괄호, 공백, 따옴표 제거 등 정규화)
     valid_ids = {a.info.id for a in articles}
-    id_lookup = {a.info.id.strip(): a.info.id for a in articles}
+    # 숫자만 추출한 역매핑 테이블
+    import re as _re
+    id_by_digits = {}
+    for a in articles:
+        digits = _re.sub(r'[^0-9a-fA-F]', '', a.info.id)
+        if digits:
+            id_by_digits[digits] = a.info.id
 
     def normalize_ids(raw_ids):
         """LLM이 반환한 ID 리스트를 정규화하여 실제 ID와 매칭."""
@@ -326,13 +332,30 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
             return []
         result = []
         for rid in raw_ids:
-            rid = str(rid).strip().strip('"').strip("'")
-            if rid in valid_ids:
-                result.append(rid)
-            elif rid in id_lookup:
-                result.append(id_lookup[rid])
-            else:
-                logger.warning(f"Classification: unmatched article ID '{rid}'")
+            rid_str = str(rid).strip().strip('"').strip("'")
+            # 1) 그대로 매칭
+            if rid_str in valid_ids:
+                result.append(rid_str)
+                continue
+            # 2) 괄호 제거 [123] → 123
+            cleaned = rid_str.strip('[]').strip()
+            if cleaned in valid_ids:
+                result.append(cleaned)
+                continue
+            # 3) 숫자/hex만 추출해서 매칭
+            digits = _re.sub(r'[^0-9a-fA-F]', '', rid_str)
+            if digits and digits in id_by_digits:
+                result.append(id_by_digits[digits])
+                continue
+            # 4) 부분 문자열 매칭 (ID가 다른 문자열에 포함되어 있는 경우)
+            found = False
+            for vid in valid_ids:
+                if vid in rid_str or rid_str in vid:
+                    result.append(vid)
+                    found = True
+                    break
+            if not found:
+                logger.warning(f"Classification: unmatched article ID '{rid_str}' (original: '{rid}')")
         return result
 
     deal = cls.get("deal", {})
