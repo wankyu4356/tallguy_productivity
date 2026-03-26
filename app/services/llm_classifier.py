@@ -268,6 +268,7 @@ article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중
         )
 
         text = response.content[0].text
+        logger.info(f"LLM classification response length: {len(text)} chars")
         json_match = _extract_json(text)
         if json_match:
             data = json.loads(json_match)
@@ -276,20 +277,38 @@ article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중
             if reasoning:
                 for aid, reason in reasoning.items():
                     logger.info(f"Classification: [{aid}] → {reason}")
-            return _parse_classification(data, articles)
+            result = _parse_classification(data, articles)
+            # 결과 검증
+            total_classified = sum(
+                len(cat.articles) + sum(
+                    len(sub.articles) + sum(len(si.articles) for si in sub.sub_items)
+                    for sub in cat.subcategories
+                ) for cat in result.categories
+            )
+            logger.info(f"Classification result: {total_classified} articles classified into categories")
+            if total_classified == 0:
+                logger.error(f"Classification returned 0 articles! LLM response (first 500): {text[:500]}")
+            return result
+        else:
+            logger.error(f"Failed to extract JSON from LLM response. Response (first 500): {text[:500]}")
     except Exception as e:
         logger.error(f"LLM classification failed: {e}", exc_info=True)
 
-    # Fallback: put all in order as-is
+    # Fallback: 모든 기사를 Deal > 기타에 배치
+    all_ids = [a.info.id for a in articles]
+    logger.warning(f"Using fallback classification for {len(all_ids)} articles")
     return ClassifiedOutput(
-        article_order=[a.info.id for a in articles],
+        article_order=all_ids,
         categories=[
             ClassificationCategory(
                 name="Deal",
                 subcategories=[
                     ClassificationSubcategory(name="경영권 인수 및 매각, 투자 유치"),
                     ClassificationSubcategory(name="투자회수"),
-                    ClassificationSubcategory(name="기타"),
+                    ClassificationSubcategory(
+                        name="기타",
+                        articles=all_ids,  # 전부 여기에 배치
+                    ),
                 ],
             ),
             ClassificationCategory(

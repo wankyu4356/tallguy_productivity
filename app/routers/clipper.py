@@ -422,6 +422,39 @@ async def get_classification(session_id: str):
 
     logger.info(f"Classification tree: {total_articles} articles resolved out of {len(all_cls_ids)} classified IDs")
 
+    # 안전장치: 분류된 기사가 0개면 모든 기사를 첫 번째 카테고리에 직접 배치
+    if total_articles == 0 and session.articles_with_content:
+        logger.warning(f"No articles in classification tree! Injecting all {len(session.articles_with_content)} articles")
+        all_article_details = []
+        for a in session.articles_with_content:
+            summary = a.info.summary or ""
+            if not summary and a.content:
+                summary = a.content[:200].replace("\n", " ").strip()
+                if len(a.content) > 200:
+                    summary += "..."
+            all_article_details.append({
+                "id": a.info.id,
+                "title": a.info.title,
+                "summary": summary,
+                "url": a.info.url,
+                "category": a.info.category,
+            })
+        total_articles = len(all_article_details)
+
+        # 기존 트리 구조가 있으면 첫 카테고리에 넣기
+        if tree:
+            # subcategory가 있으면 마지막 서브카테고리(기타)에
+            if tree[0].get("subcategories"):
+                target_sub = tree[0]["subcategories"][-1]
+                if target_sub.get("sub_items"):
+                    target_sub["sub_items"][-1]["articles"] = all_article_details
+                else:
+                    target_sub["articles"] = all_article_details
+            else:
+                tree[0]["articles"] = all_article_details
+        else:
+            tree = [{"name": "전체 기사", "articles": all_article_details, "subcategories": []}]
+
     return {
         "status": session.status.value,
         "tree": tree,
@@ -431,6 +464,7 @@ async def get_classification(session_id: str):
             "unmatched_sample": unmatched_raw[:10],
             "available_ids_sample": list(articles_map.keys())[:10],
             "articles_with_content_count": len(session.articles_with_content),
+            "total_in_tree": total_articles,
         }
     }
 
