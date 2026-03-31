@@ -29,26 +29,20 @@
             <div class="sdk-header">
                 <div class="game-emoji">&#x1F9E9;</div>
                 <h2 class="game-title">스도쿠 챌린지</h2>
-                <p class="game-sub">각 행, 열, 2x2 박스에 <strong>1~4</strong>를 한 번씩!<br>난이도가 점점 올라갑니다</p>
+                <p class="game-sub" id="sdk-sub">각 행, 열, 박스에 숫자를 한 번씩!<br>4×4 → 6×6 → 9×9 단계별 도전</p>
             </div>
             <div class="sdk-difficulty" id="sdk-difficulty">
                 <span class="sdk-diff-badge" id="sdk-diff-badge">EASY</span>
             </div>
             <div class="sdk-progress-bar">
-                <div class="sdk-pip" id="sdk-pip-0"><span class="pip-num">1</span><span class="pip-label">Easy</span></div>
+                <div class="sdk-pip" id="sdk-pip-0"><span class="pip-num">1</span><span class="pip-label">4×4</span></div>
                 <div class="sdk-pip-line"></div>
-                <div class="sdk-pip" id="sdk-pip-1"><span class="pip-num">2</span><span class="pip-label">Normal</span></div>
+                <div class="sdk-pip" id="sdk-pip-1"><span class="pip-num">2</span><span class="pip-label">6×6</span></div>
                 <div class="sdk-pip-line"></div>
-                <div class="sdk-pip" id="sdk-pip-2"><span class="pip-num">3</span><span class="pip-label">Hard</span></div>
+                <div class="sdk-pip" id="sdk-pip-2"><span class="pip-num">3</span><span class="pip-label">9×9</span></div>
             </div>
             <div class="sudoku-board" id="sudoku-board"></div>
-            <div class="sdk-numpad">
-                <button class="sdk-num" onclick="sdkInput(1)">1</button>
-                <button class="sdk-num" onclick="sdkInput(2)">2</button>
-                <button class="sdk-num" onclick="sdkInput(3)">3</button>
-                <button class="sdk-num" onclick="sdkInput(4)">4</button>
-                <button class="sdk-num sdk-erase" onclick="sdkInput(0)">&#x232B;</button>
-            </div>
+            <div class="sdk-numpad" id="sdk-numpad"></div>
             <div class="game-msg" id="sudoku-msg"></div>
             <button class="game-btn" id="sudoku-check" onclick="checkSudoku()">&#x2705; 정답 확인</button>
         </div>
@@ -280,7 +274,7 @@
     overflow: visible;
     transition: max-width 0.4s ease;
 }
-.restday-popup.game-mode { max-width: 420px; }
+.restday-popup.game-mode { max-width: 520px; }
 @keyframes popup-bounce {
     0% { opacity: 0; transform: scale(0.3) translateY(60px); }
     50% { opacity: 1; transform: scale(1.08) translateY(-10px); }
@@ -483,22 +477,31 @@
 .sdk-pip-line.done { background: #22c55e; }
 
 .sudoku-board {
-    display: inline-grid; grid-template-columns: repeat(4, 56px); grid-template-rows: repeat(4, 56px);
+    display: inline-grid;
     gap: 0; border: 3px solid #2d2b55; border-radius: 14px;
     overflow: hidden; margin: 0 auto;
     box-shadow: 0 4px 20px rgba(45,43,85,0.15);
+    transition: all 0.3s ease;
 }
+.sudoku-board.grid-4 { grid-template-columns: repeat(4, 56px); grid-template-rows: repeat(4, 56px); }
+.sudoku-board.grid-6 { grid-template-columns: repeat(6, 46px); grid-template-rows: repeat(6, 46px); }
+.sudoku-board.grid-9 { grid-template-columns: repeat(9, 38px); grid-template-rows: repeat(9, 38px); }
 .sudoku-cell {
-    width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;
-    font-size: 24px; font-weight: 800; background: white; color: #1a1a2e;
-    border: 1px solid #e0e0ee; border-collapse: collapse;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; background: white; color: #1a1a2e;
+    border: 1px solid #e0e0ee;
     outline: none; text-align: center; cursor: pointer;
     transition: all 0.15s ease;
 }
+.grid-4 .sudoku-cell { font-size: 24px; }
+.grid-6 .sudoku-cell { font-size: 20px; }
+.grid-9 .sudoku-cell { font-size: 16px; }
 .sudoku-cell.given {
     background: linear-gradient(135deg, #f0f0ff, #e8e8f8); color: #667eea; cursor: default;
-    font-size: 26px;
 }
+.grid-4 .sudoku-cell.given { font-size: 26px; }
+.grid-6 .sudoku-cell.given { font-size: 22px; }
+.grid-9 .sudoku-cell.given { font-size: 18px; }
 .sudoku-cell.input-cell { background: #fff; }
 .sudoku-cell.input-cell.selected {
     background: #667eea; color: white !important;
@@ -527,11 +530,11 @@
 
 /* 숫자패드 */
 .sdk-numpad {
-    display: flex; justify-content: center; gap: 8px; margin-top: 14px;
+    display: flex; justify-content: center; gap: 6px; margin-top: 14px; flex-wrap: wrap;
 }
 .sdk-num {
-    width: 44px; height: 44px; border-radius: 12px; border: 2px solid #e0e0ee;
-    background: white; font-size: 20px; font-weight: 800; color: #2d2b55;
+    min-width: 38px; height: 40px; padding: 0 6px; border-radius: 10px; border: 2px solid #e0e0ee;
+    background: white; font-size: 18px; font-weight: 800; color: #2d2b55;
     cursor: pointer; transition: all 0.15s;
     display: flex; align-items: center; justify-content: center;
 }
@@ -699,53 +702,83 @@
 // === 홀수 일자 쉬는날 + 미니게임 ===
 let activeGameType = null;
 
-// ============ 스도쿠 (난이도별) ============
-// 솔루션 풀 (다양한 4x4 정답)
-const SOLUTIONS = [
-    [1,2,3,4, 3,4,1,2, 2,3,4,1, 4,1,2,3],
-    [2,3,4,1, 4,1,2,3, 1,4,3,2, 3,2,1,4],
-    [3,1,4,2, 4,2,3,1, 1,3,2,4, 2,4,1,3],
-    [4,2,1,3, 1,3,4,2, 3,4,2,1, 2,1,3,4],
-    [2,4,3,1, 3,1,2,4, 4,2,1,3, 1,3,4,2],
-    [1,3,2,4, 2,4,1,3, 3,1,4,2, 4,2,3,1],
-    [4,1,3,2, 2,3,4,1, 1,4,2,3, 3,2,1,4],
-    [3,4,2,1, 1,2,3,4, 4,1,2,3, 2,3,4,1],  // added extra solutions for variety
-];
-
-// given 인덱스를 난이도에 따라 생성 (각 2x2 박스에서 최소 1개 보장)
-function generateGiven(solution, count) {
-    // 4개 박스: [0,1,4,5], [2,3,6,7], [8,9,12,13], [10,11,14,15]
-    const boxes = [[0,1,4,5],[2,3,6,7],[8,9,12,13],[10,11,14,15]];
-    const given = new Set();
-    // 각 박스에서 최소 1개
-    boxes.forEach(box => {
-        const shuffled = box.sort(() => Math.random()-0.5);
-        given.add(shuffled[0]);
-    });
-    // 나머지 랜덤 추가
-    const remaining = Array.from({length:16}, (_,i) => i).filter(i => !given.has(i)).sort(() => Math.random()-0.5);
-    while (given.size < count && remaining.length) {
-        given.add(remaining.shift());
-    }
-    return [...given].sort((a,b) => a-b);
-}
-
-// 난이도 설정: given 셀 개수
+// ============ 스도쿠 (단계별: 4×4 → 6×6 → 9×9) ============
+// 난이도 설정: 그리드 크기 + given 셀 개수
 const DIFFICULTY = [
-    { name: 'EASY',   label: 'Easy',   givenCount: 10, cls: 'diff-easy' },
-    { name: 'NORMAL', label: 'Normal', givenCount: 7,  cls: 'diff-normal' },
-    { name: 'HARD',   label: 'Hard!',  givenCount: 5,  cls: 'diff-hard' },
+    { name: 'EASY',   label: 'Easy',   gridSize: 4, boxRows: 2, boxCols: 2, givenCount: 10, cls: 'diff-easy',   desc: '4×4 워밍업' },
+    { name: 'NORMAL', label: 'Normal', gridSize: 6, boxRows: 2, boxCols: 3, givenCount: 18, cls: 'diff-normal', desc: '6×6 중급' },
+    { name: 'HARD',   label: 'Hard!',  gridSize: 9, boxRows: 3, boxCols: 3, givenCount: 32, cls: 'diff-hard',   desc: '9×9 정통 스도쿠' },
 ];
 
 let sudokuRound = 0, sudokuPuzzles = [], currentPuzzle = null, selectedCell = null;
 
+// 배열 셔플 (Fisher-Yates)
+function sdkShuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+// 백트래킹으로 스도쿠 솔루션 생성
+function generateSolution(gridSize, boxRows, boxCols) {
+    const board = new Array(gridSize * gridSize).fill(0);
+    function isValid(pos, num) {
+        const row = Math.floor(pos / gridSize), col = pos % gridSize;
+        for (let c = 0; c < gridSize; c++) if (board[row * gridSize + c] === num) return false;
+        for (let r = 0; r < gridSize; r++) if (board[r * gridSize + col] === num) return false;
+        const br = Math.floor(row / boxRows) * boxRows, bc = Math.floor(col / boxCols) * boxCols;
+        for (let r = br; r < br + boxRows; r++)
+            for (let c = bc; c < bc + boxCols; c++)
+                if (board[r * gridSize + c] === num) return false;
+        return true;
+    }
+    function solve(pos) {
+        if (pos >= gridSize * gridSize) return true;
+        const nums = sdkShuffle(Array.from({length: gridSize}, (_, i) => i + 1));
+        for (const num of nums) {
+            if (isValid(pos, num)) {
+                board[pos] = num;
+                if (solve(pos + 1)) return true;
+                board[pos] = 0;
+            }
+        }
+        return false;
+    }
+    solve(0);
+    return [...board];
+}
+
+// given 인덱스 생성 (각 박스에서 최소 1개 보장)
+function generateGiven(solution, count, gridSize, boxRows, boxCols) {
+    const given = new Set();
+    for (let br = 0; br < gridSize; br += boxRows) {
+        for (let bc = 0; bc < gridSize; bc += boxCols) {
+            const cells = [];
+            for (let r = br; r < br + boxRows; r++)
+                for (let c = bc; c < bc + boxCols; c++)
+                    cells.push(r * gridSize + c);
+            given.add(cells[Math.floor(Math.random() * cells.length)]);
+        }
+    }
+    const remaining = sdkShuffle(
+        Array.from({length: gridSize * gridSize}, (_, i) => i).filter(i => !given.has(i))
+    );
+    while (given.size < count && remaining.length) given.add(remaining.shift());
+    return [...given].sort((a, b) => a - b);
+}
+
 function pickSudokuPuzzles() {
-    const shuffled = [...SOLUTIONS].sort(() => Math.random() - 0.5);
-    sudokuPuzzles = DIFFICULTY.map((diff, i) => ({
-        solution: shuffled[i % shuffled.length],
-        given: generateGiven(shuffled[i % shuffled.length], diff.givenCount),
-        difficulty: diff,
-    }));
+    sudokuPuzzles = DIFFICULTY.map(diff => {
+        const solution = generateSolution(diff.gridSize, diff.boxRows, diff.boxCols);
+        return {
+            solution,
+            given: generateGiven(solution, diff.givenCount, diff.gridSize, diff.boxRows, diff.boxCols),
+            difficulty: diff,
+        };
+    });
     sudokuRound = 0;
 }
 
@@ -759,7 +792,6 @@ function updateSdkPips() {
     document.querySelectorAll('.sdk-pip-line').forEach((line, i) => {
         line.classList.toggle('done', i < sudokuRound);
     });
-    // 난이도 배지 업데이트
     const diff = sudokuPuzzles[Math.min(sudokuRound, 2)].difficulty;
     const badge = document.getElementById('sdk-diff-badge');
     badge.textContent = diff.name;
@@ -767,23 +799,51 @@ function updateSdkPips() {
     if (sudokuRound > 0) badge.classList.add('diff-up');
 }
 
+function buildNumpad(gridSize) {
+    const pad = document.getElementById('sdk-numpad');
+    pad.innerHTML = '';
+    for (let n = 1; n <= gridSize; n++) {
+        const btn = document.createElement('button');
+        btn.className = 'sdk-num';
+        btn.textContent = n;
+        btn.addEventListener('click', () => sdkInput(n));
+        pad.appendChild(btn);
+    }
+    const eraseBtn = document.createElement('button');
+    eraseBtn.className = 'sdk-num sdk-erase';
+    eraseBtn.innerHTML = '&#x232B;';
+    eraseBtn.addEventListener('click', () => sdkInput(0));
+    pad.appendChild(eraseBtn);
+}
+
 function renderSudoku() {
     currentPuzzle = sudokuPuzzles[sudokuRound];
+    const diff = currentPuzzle.difficulty;
+    const gridSize = diff.gridSize;
     const board = document.getElementById('sudoku-board');
     board.innerHTML = '';
+    board.className = 'sudoku-board grid-' + gridSize;
     selectedCell = null;
     updateSdkPips();
+    buildNumpad(gridSize);
+
+    // Update description
+    const sub = document.getElementById('sdk-sub');
+    sub.innerHTML = `각 행, 열, ${diff.boxRows}×${diff.boxCols} 박스에 <strong>1~${gridSize}</strong>를 한 번씩! (${diff.desc})`;
+
     document.getElementById('sudoku-msg').textContent = '';
     document.getElementById('sudoku-msg').className = 'game-msg';
     document.getElementById('sudoku-check').disabled = false;
 
-    for (let i = 0; i < 16; i++) {
+    const totalCells = gridSize * gridSize;
+    for (let i = 0; i < totalCells; i++) {
         const isGiven = currentPuzzle.given.includes(i);
-        const row = Math.floor(i / 4), col = i % 4;
+        const row = Math.floor(i / gridSize), col = i % gridSize;
         const div = document.createElement('div');
         div.className = 'sudoku-cell';
-        if (col === 1) div.classList.add('box-right');
-        if (row === 1) div.classList.add('box-bottom');
+        // Box borders
+        if ((col + 1) % diff.boxCols === 0 && col < gridSize - 1) div.classList.add('box-right');
+        if ((row + 1) % diff.boxRows === 0 && row < gridSize - 1) div.classList.add('box-bottom');
         div.dataset.idx = i;
 
         if (isGiven) {
@@ -794,13 +854,13 @@ function renderSudoku() {
             div.setAttribute('tabindex', '0');
             div.addEventListener('click', () => selectCell(div));
             div.addEventListener('keydown', (e) => {
-                if (e.key >= '1' && e.key <= '4') { sdkInput(parseInt(e.key)); }
+                const n = parseInt(e.key);
+                if (n >= 1 && n <= gridSize) { sdkInput(n); }
                 else if (e.key === 'Backspace' || e.key === 'Delete') { sdkInput(0); }
                 else if (e.key === 'Enter') checkSudoku();
             });
         }
-        // staggered entrance animation
-        div.style.animation = `cell-pop 0.3s ${i * 0.02}s cubic-bezier(0.34,1.56,0.64,1) both`;
+        div.style.animation = `cell-pop 0.3s ${i * 0.012}s cubic-bezier(0.34,1.56,0.64,1) both`;
         board.appendChild(div);
     }
 }
