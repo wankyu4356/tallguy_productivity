@@ -458,6 +458,8 @@ async def get_classification(session_id: str):
     return {
         "status": session.status.value,
         "tree": tree,
+        "is_fallback": session.classification.is_fallback if session.classification else False,
+        "fallback_reason": session.classification.fallback_reason if session.classification else "",
         "debug": {
             "classified_ids_total": len(all_cls_ids),
             "matched": matched_count,
