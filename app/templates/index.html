@@ -84,6 +84,48 @@
             <div class="slot-history" id="slot-history"></div>
         </div>
 
+        <!-- 2단계: 테트리스 게임 -->
+        <div id="restday-tetris" style="display:none;">
+            <div class="tetris-header">
+                <div class="game-emoji">&#x1F9F1;</div>
+                <h2 class="game-title">테트리스</h2>
+                <p class="game-sub"><strong>10줄</strong>을 없애면 통과! &nbsp;|&nbsp; <span id="tetris-lines">0 / 10 라인</span></p>
+            </div>
+            <div class="tetris-status">
+                <div class="tetris-score">점수: <strong id="tetris-score-val">0</strong></div>
+                <div class="tetris-next-label">다음 블록</div>
+            </div>
+            <div class="tetris-play-area">
+                <canvas id="tetris-canvas" width="200" height="400"></canvas>
+                <canvas id="tetris-next" width="80" height="80"></canvas>
+            </div>
+            <div class="tetris-controls" id="tetris-controls">
+                <button class="tetris-ctrl-btn" id="tc-left" aria-label="왼쪽">&#x2B05;&#xFE0F;</button>
+                <button class="tetris-ctrl-btn" id="tc-rotate" aria-label="회전">&#x1F504;</button>
+                <button class="tetris-ctrl-btn" id="tc-right" aria-label="오른쪽">&#x27A1;&#xFE0F;</button>
+                <button class="tetris-ctrl-btn tetris-ctrl-drop" id="tc-drop" aria-label="드롭">&#x2B07;&#xFE0F; DROP</button>
+            </div>
+            <div class="game-msg" id="tetris-msg"></div>
+            <button class="game-btn" id="tetris-restart" style="display:none;" onclick="tetrisRestart()">&#x1F504; 다시 시작</button>
+        </div>
+
+        <!-- 2단계: 지뢰찾기 게임 -->
+        <div id="restday-minesweeper" style="display:none;">
+            <div class="ms-header">
+                <div class="game-emoji">&#x1F4A3;</div>
+                <h2 class="game-title">지뢰찾기</h2>
+                <p class="game-sub">지뢰를 피해 모든 칸을 열면 통과!</p>
+            </div>
+            <div class="ms-status">
+                <span class="ms-stat">&#x1F4A3; <span id="ms-mine-count">10</span></span>
+                <span class="ms-stat">&#x23F1;&#xFE0F; <span id="ms-timer">0</span>초</span>
+            </div>
+            <div class="ms-board" id="ms-board"></div>
+            <div class="game-msg" id="ms-msg"></div>
+            <button class="game-btn" id="ms-restart" style="display:none;" onclick="msRestart()">&#x1F504; 다시 시작</button>
+            <p class="ms-hint">&#x1F4F1; 길게 누르면 깃발 꽂기</p>
+        </div>
+
         <!-- 클리어 축하 화면 -->
         <div id="restday-clear" style="display:none;">
             <div class="clear-confetti" id="clear-confetti"></div>
@@ -667,6 +709,76 @@
 .slot-hist-item.has7 { background: #fff0f0; color: #f5576c; }
 @keyframes hist-in { 0% { opacity:0; transform:scale(0.5); } 100% { opacity:1; transform:scale(1); } }
 
+/* === 테트리스 === */
+.tetris-header { margin-bottom: 10px; }
+.tetris-status {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px; padding: 0 20px; font-size: 13px; color: #666;
+}
+.tetris-score strong { color: #667eea; font-size: 16px; }
+.tetris-next-label { font-size: 11px; color: #999; }
+.tetris-play-area {
+    display: flex; justify-content: center; align-items: flex-start; gap: 12px;
+}
+#tetris-canvas {
+    border: 3px solid #2d2b55; border-radius: 8px;
+    background: #f8f8ff;
+    box-shadow: 0 4px 20px rgba(45,43,85,0.15);
+}
+#tetris-next {
+    border: 2px solid #e0e0ee; border-radius: 8px;
+    background: #fafafe;
+}
+.tetris-controls {
+    display: flex; justify-content: center; gap: 8px; margin-top: 12px;
+}
+.tetris-ctrl-btn {
+    width: 52px; height: 52px; border-radius: 14px; border: 2px solid #e0e0ee;
+    background: white; font-size: 22px; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+}
+.tetris-ctrl-btn:hover { background: #667eea; color: white; border-color: #667eea; }
+.tetris-ctrl-btn:active { transform: scale(0.9); background: #5568d0; color: white; border-color: #5568d0; }
+.tetris-ctrl-drop {
+    width: auto; padding: 0 20px; font-size: 14px; font-weight: 700; gap: 4px;
+}
+@media (min-width: 769px) { .tetris-controls { display: none; } }
+
+/* === 지뢰찾기 === */
+.ms-header { margin-bottom: 10px; }
+.ms-status {
+    display: flex; justify-content: center; gap: 24px;
+    margin-bottom: 12px; font-size: 15px; font-weight: 700; color: #2d2b55;
+}
+.ms-stat { display: flex; align-items: center; gap: 4px; }
+.ms-board {
+    display: inline-grid; gap: 0;
+    border: 3px solid #2d2b55; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 4px 20px rgba(45,43,85,0.15);
+    margin: 0 auto;
+    grid-template-columns: repeat(8, 40px);
+    grid-template-rows: repeat(8, 40px);
+}
+.ms-cell {
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; cursor: pointer;
+    background: linear-gradient(135deg, #e8e8f8, #d8d8ee);
+    border: 1px solid #c8c8dd;
+    transition: all 0.1s; user-select: none; -webkit-user-select: none;
+}
+.ms-cell:hover:not(.ms-revealed):not(.ms-flagged) { background: #d0d0e8; }
+.ms-cell.ms-revealed { background: #fff; cursor: default; border-color: #e8e8f0; }
+.ms-cell.ms-flagged { background: linear-gradient(135deg, #fff0f0, #ffe0e0); }
+.ms-cell.ms-mine { background: #f5576c; color: white; }
+.ms-cell.ms-exploded { background: #ff2020; color: white; animation: cell-shake 0.35s ease; }
+.ms-cell.ms-n1 { color: #2563eb; } .ms-cell.ms-n2 { color: #16a34a; }
+.ms-cell.ms-n3 { color: #dc2626; } .ms-cell.ms-n4 { color: #7c3aed; }
+.ms-cell.ms-n5 { color: #b91c1c; } .ms-cell.ms-n6 { color: #0891b2; }
+.ms-cell.ms-n7 { color: #1a1a2e; } .ms-cell.ms-n8 { color: #6b7280; }
+.ms-hint { font-size: 11px; color: #999; margin-top: 8px; }
+@media (min-width: 769px) { .ms-hint { display: none; } }
+
 /* === 클리어 화면 === */
 #restday-clear { position: relative; }
 .clear-confetti { position: absolute; top: -20px; left: 0; right: 0; height: 200px; pointer-events: none; overflow: hidden; }
@@ -1024,11 +1136,450 @@ function judgeSlot(results) {
     }
 }
 
+// ============ 테트리스 ============
+const TETRIS_COLS = 10, TETRIS_ROWS = 20, TETRIS_CELL = 20;
+const TETRIS_CLEAR_LINES = 10;
+const TETROMINOES = {
+    I: { blocks: [[0,0],[0,1],[0,2],[0,3]], color: '#4facfe' },
+    O: { blocks: [[0,0],[0,1],[1,0],[1,1]], color: '#ffd700' },
+    T: { blocks: [[0,0],[0,1],[0,2],[1,1]], color: '#764ba2' },
+    S: { blocks: [[0,1],[0,2],[1,0],[1,1]], color: '#43e97b' },
+    Z: { blocks: [[0,0],[0,1],[1,1],[1,2]], color: '#f5576c' },
+    L: { blocks: [[0,0],[0,1],[0,2],[1,0]], color: '#ff6b35' },
+    J: { blocks: [[0,0],[0,1],[0,2],[1,2]], color: '#667eea' },
+};
+const TETRO_KEYS = Object.keys(TETROMINOES);
+
+let tetrisCanvas, tetrisCtx, tetrisNextCanvas, tetrisNextCtx;
+let tetrisBoard, tetrisCurrent, tetrisNextPiece, tetrisScore, tetrisLinesCleared;
+let tetrisRafId, tetrisGameOverFlag, tetrisSpeed, tetrisLastDrop;
+let tetrisKeyHandler;
+
+function tetrisNewPiece() {
+    const key = TETRO_KEYS[Math.floor(Math.random() * TETRO_KEYS.length)];
+    const t = TETROMINOES[key];
+    return { type: key, blocks: t.blocks.map(b => [...b]), color: t.color, row: 0, col: 3 };
+}
+
+function tetrisRotate(blocks) {
+    const rotated = blocks.map(([r, c]) => [c, -r]);
+    const minR = Math.min(...rotated.map(b => b[0]));
+    const minC = Math.min(...rotated.map(b => b[1]));
+    return rotated.map(([r, c]) => [r - minR, c - minC]);
+}
+
+function tetrisCollides(blocks, row, col, board) {
+    for (const [br, bc] of blocks) {
+        const r = row + br, c = col + bc;
+        if (r < 0 || r >= TETRIS_ROWS || c < 0 || c >= TETRIS_COLS) return true;
+        if (board[r][c]) return true;
+    }
+    return false;
+}
+
+function tetrisLock() {
+    for (const [br, bc] of tetrisCurrent.blocks) {
+        const r = tetrisCurrent.row + br, c = tetrisCurrent.col + bc;
+        if (r >= 0 && r < TETRIS_ROWS && c >= 0 && c < TETRIS_COLS) {
+            tetrisBoard[r][c] = tetrisCurrent.color;
+        }
+    }
+    // Clear full lines
+    let cleared = 0;
+    for (let r = TETRIS_ROWS - 1; r >= 0; r--) {
+        if (tetrisBoard[r].every(cell => cell)) {
+            tetrisBoard.splice(r, 1);
+            tetrisBoard.unshift(new Array(TETRIS_COLS).fill(0));
+            cleared++;
+            r++; // re-check this row
+        }
+    }
+    if (cleared > 0) {
+        const points = [0, 100, 300, 500, 800];
+        tetrisScore += points[cleared] || 800;
+        tetrisLinesCleared += cleared;
+        tetrisSpeed = Math.max(100, 500 - tetrisLinesCleared * 40);
+        document.getElementById('tetris-lines').textContent = `${Math.min(tetrisLinesCleared, TETRIS_CLEAR_LINES)} / ${TETRIS_CLEAR_LINES} 라인`;
+        document.getElementById('tetris-score-val').textContent = tetrisScore;
+        if (tetrisLinesCleared >= TETRIS_CLEAR_LINES) {
+            tetrisGameOverFlag = true;
+            document.removeEventListener('keydown', tetrisKeyHandler);
+            setTimeout(() => showClearScreen('tetris'), 600);
+            return;
+        }
+    }
+    // Spawn next piece
+    tetrisCurrent = tetrisNextPiece;
+    tetrisNextPiece = tetrisNewPiece();
+    if (tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row, tetrisCurrent.col, tetrisBoard)) {
+        tetrisGameOverFlag = true;
+        document.removeEventListener('keydown', tetrisKeyHandler);
+        const msg = document.getElementById('tetris-msg');
+        msg.textContent = '게임 오버! 다시 도전하세요';
+        msg.className = 'game-msg msg-error';
+        document.getElementById('tetris-restart').style.display = '';
+    }
+}
+
+function tetrisDraw() {
+    tetrisCtx.clearRect(0, 0, 200, 400);
+    // Grid lines
+    tetrisCtx.strokeStyle = '#eeeef5';
+    tetrisCtx.lineWidth = 0.5;
+    for (let r = 1; r < TETRIS_ROWS; r++) {
+        tetrisCtx.beginPath(); tetrisCtx.moveTo(0, r * TETRIS_CELL); tetrisCtx.lineTo(200, r * TETRIS_CELL); tetrisCtx.stroke();
+    }
+    for (let c = 1; c < TETRIS_COLS; c++) {
+        tetrisCtx.beginPath(); tetrisCtx.moveTo(c * TETRIS_CELL, 0); tetrisCtx.lineTo(c * TETRIS_CELL, 400); tetrisCtx.stroke();
+    }
+    // Locked cells
+    for (let r = 0; r < TETRIS_ROWS; r++) {
+        for (let c = 0; c < TETRIS_COLS; c++) {
+            if (tetrisBoard[r][c]) {
+                tetrisCtx.fillStyle = tetrisBoard[r][c];
+                tetrisCtx.fillRect(c * TETRIS_CELL + 1, r * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+                tetrisCtx.fillStyle = 'rgba(255,255,255,0.25)';
+                tetrisCtx.fillRect(c * TETRIS_CELL + 1, r * TETRIS_CELL + 1, TETRIS_CELL - 2, 3);
+            }
+        }
+    }
+    // Ghost piece (preview of drop position)
+    if (tetrisCurrent && !tetrisGameOverFlag) {
+        let ghostRow = tetrisCurrent.row;
+        while (!tetrisCollides(tetrisCurrent.blocks, ghostRow + 1, tetrisCurrent.col, tetrisBoard)) ghostRow++;
+        if (ghostRow !== tetrisCurrent.row) {
+            tetrisCtx.globalAlpha = 0.2;
+            for (const [br, bc] of tetrisCurrent.blocks) {
+                const r = ghostRow + br, c = tetrisCurrent.col + bc;
+                tetrisCtx.fillStyle = tetrisCurrent.color;
+                tetrisCtx.fillRect(c * TETRIS_CELL + 1, r * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+            }
+            tetrisCtx.globalAlpha = 1;
+        }
+        // Current piece
+        for (const [br, bc] of tetrisCurrent.blocks) {
+            const r = tetrisCurrent.row + br, c = tetrisCurrent.col + bc;
+            tetrisCtx.fillStyle = tetrisCurrent.color;
+            tetrisCtx.fillRect(c * TETRIS_CELL + 1, r * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+            tetrisCtx.fillStyle = 'rgba(255,255,255,0.3)';
+            tetrisCtx.fillRect(c * TETRIS_CELL + 1, r * TETRIS_CELL + 1, TETRIS_CELL - 2, 3);
+        }
+    }
+}
+
+function tetrisDrawNext() {
+    tetrisNextCtx.clearRect(0, 0, 80, 80);
+    if (!tetrisNextPiece) return;
+    const t = tetrisNextPiece;
+    const maxR = Math.max(...t.blocks.map(b => b[0])) + 1;
+    const maxC = Math.max(...t.blocks.map(b => b[1])) + 1;
+    const offX = (80 - maxC * TETRIS_CELL) / 2;
+    const offY = (80 - maxR * TETRIS_CELL) / 2;
+    for (const [br, bc] of t.blocks) {
+        tetrisNextCtx.fillStyle = t.color;
+        tetrisNextCtx.fillRect(offX + bc * TETRIS_CELL + 1, offY + br * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+        tetrisNextCtx.fillStyle = 'rgba(255,255,255,0.3)';
+        tetrisNextCtx.fillRect(offX + bc * TETRIS_CELL + 1, offY + br * TETRIS_CELL + 1, TETRIS_CELL - 2, 3);
+    }
+}
+
+function tetrisGameLoop(ts) {
+    if (tetrisGameOverFlag) return;
+    if (!tetrisLastDrop) tetrisLastDrop = ts;
+    if (ts - tetrisLastDrop > tetrisSpeed) {
+        tetrisLastDrop = ts;
+        if (!tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row + 1, tetrisCurrent.col, tetrisBoard)) {
+            tetrisCurrent.row++;
+        } else {
+            tetrisLock();
+        }
+    }
+    tetrisDraw();
+    tetrisDrawNext();
+    tetrisRafId = requestAnimationFrame(tetrisGameLoop);
+}
+
+function tetrisMoveLeft() {
+    if (tetrisGameOverFlag) return;
+    if (!tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row, tetrisCurrent.col - 1, tetrisBoard)) tetrisCurrent.col--;
+}
+function tetrisMoveRight() {
+    if (tetrisGameOverFlag) return;
+    if (!tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row, tetrisCurrent.col + 1, tetrisBoard)) tetrisCurrent.col++;
+}
+function tetrisMoveDown() {
+    if (tetrisGameOverFlag) return;
+    if (!tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row + 1, tetrisCurrent.col, tetrisBoard)) {
+        tetrisCurrent.row++;
+        tetrisScore += 1;
+        document.getElementById('tetris-score-val').textContent = tetrisScore;
+    }
+}
+function tetrisHardDrop() {
+    if (tetrisGameOverFlag) return;
+    while (!tetrisCollides(tetrisCurrent.blocks, tetrisCurrent.row + 1, tetrisCurrent.col, tetrisBoard)) {
+        tetrisCurrent.row++;
+        tetrisScore += 2;
+    }
+    document.getElementById('tetris-score-val').textContent = tetrisScore;
+    tetrisLock();
+}
+function tetrisRotateAction() {
+    if (tetrisGameOverFlag) return;
+    if (tetrisCurrent.type === 'O') return; // O doesn't rotate
+    const rotated = tetrisRotate(tetrisCurrent.blocks);
+    // Try normal position, then wall kicks (-1, +1, -2, +2)
+    for (const kick of [0, -1, 1, -2, 2]) {
+        if (!tetrisCollides(rotated, tetrisCurrent.row, tetrisCurrent.col + kick, tetrisBoard)) {
+            tetrisCurrent.blocks = rotated;
+            tetrisCurrent.col += kick;
+            return;
+        }
+    }
+}
+
+function tetrisInit() {
+    tetrisCanvas = document.getElementById('tetris-canvas');
+    tetrisCtx = tetrisCanvas.getContext('2d');
+    tetrisNextCanvas = document.getElementById('tetris-next');
+    tetrisNextCtx = tetrisNextCanvas.getContext('2d');
+    tetrisBoard = Array.from({length: TETRIS_ROWS}, () => new Array(TETRIS_COLS).fill(0));
+    tetrisScore = 0; tetrisLinesCleared = 0; tetrisSpeed = 500;
+    tetrisGameOverFlag = false; tetrisLastDrop = 0;
+    tetrisCurrent = tetrisNewPiece();
+    tetrisNextPiece = tetrisNewPiece();
+    document.getElementById('tetris-lines').textContent = `0 / ${TETRIS_CLEAR_LINES} 라인`;
+    document.getElementById('tetris-score-val').textContent = '0';
+    document.getElementById('tetris-msg').textContent = '';
+    document.getElementById('tetris-msg').className = 'game-msg';
+    document.getElementById('tetris-restart').style.display = 'none';
+
+    // Keyboard
+    tetrisKeyHandler = function(e) {
+        if (tetrisGameOverFlag) return;
+        switch(e.key) {
+            case 'ArrowLeft': e.preventDefault(); tetrisMoveLeft(); break;
+            case 'ArrowRight': e.preventDefault(); tetrisMoveRight(); break;
+            case 'ArrowDown': e.preventDefault(); tetrisMoveDown(); break;
+            case 'ArrowUp': e.preventDefault(); tetrisRotateAction(); break;
+            case ' ': e.preventDefault(); tetrisHardDrop(); break;
+        }
+    };
+    document.addEventListener('keydown', tetrisKeyHandler);
+
+    // Mobile controls
+    const btnMap = { 'tc-left': tetrisMoveLeft, 'tc-right': tetrisMoveRight, 'tc-rotate': tetrisRotateAction, 'tc-drop': tetrisHardDrop };
+    Object.entries(btnMap).forEach(([id, fn]) => {
+        const btn = document.getElementById(id);
+        btn.ontouchstart = (e) => { e.preventDefault(); fn(); };
+        btn.onclick = fn;
+    });
+
+    tetrisRafId = requestAnimationFrame(tetrisGameLoop);
+}
+
+function tetrisRestart() {
+    if (tetrisRafId) cancelAnimationFrame(tetrisRafId);
+    if (tetrisKeyHandler) document.removeEventListener('keydown', tetrisKeyHandler);
+    tetrisInit();
+}
+
+// ============ 지뢰찾기 ============
+const MS_ROWS = 8, MS_COLS = 8, MS_MINES = 10;
+let msBoard, msRevealed, msFlagged, msTimerVal, msTimerInterval;
+let msGameActive, msFirstClick, msFlagCount;
+
+function msInit() {
+    msBoard = Array.from({length: MS_ROWS}, () => new Array(MS_COLS).fill(0));
+    msRevealed = Array.from({length: MS_ROWS}, () => new Array(MS_COLS).fill(false));
+    msFlagged = Array.from({length: MS_ROWS}, () => new Array(MS_COLS).fill(false));
+    msTimerVal = 0; msGameActive = true; msFirstClick = true; msFlagCount = 0;
+    if (msTimerInterval) clearInterval(msTimerInterval);
+    document.getElementById('ms-timer').textContent = '0';
+    document.getElementById('ms-mine-count').textContent = MS_MINES;
+    document.getElementById('ms-msg').textContent = '';
+    document.getElementById('ms-msg').className = 'game-msg';
+    document.getElementById('ms-restart').style.display = 'none';
+
+    const board = document.getElementById('ms-board');
+    board.innerHTML = '';
+    for (let r = 0; r < MS_ROWS; r++) {
+        for (let c = 0; c < MS_COLS; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'ms-cell';
+            cell.dataset.row = r;
+            cell.dataset.col = c;
+            // Desktop: left click = reveal, right click = flag
+            cell.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                msToggleFlag(r, c);
+            });
+            // Touch: short tap = reveal, long press = flag
+            let pressTimer = null, moved = false;
+            cell.addEventListener('touchstart', (e) => {
+                moved = false;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null;
+                    msToggleFlag(r, c);
+                }, 500);
+            }, {passive: true});
+            cell.addEventListener('touchmove', () => { moved = true; if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+            cell.addEventListener('touchend', (e) => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                    if (!moved) msReveal(r, c);
+                }
+                e.preventDefault();
+            });
+            // Desktop click
+            cell.addEventListener('click', () => msReveal(r, c));
+            board.appendChild(cell);
+        }
+    }
+}
+
+function msPlaceMines(safeR, safeC) {
+    let placed = 0;
+    while (placed < MS_MINES) {
+        const r = Math.floor(Math.random() * MS_ROWS);
+        const c = Math.floor(Math.random() * MS_COLS);
+        if (Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1) continue; // safe zone
+        if (msBoard[r][c] === -1) continue;
+        msBoard[r][c] = -1;
+        placed++;
+    }
+    // Compute adjacency counts
+    for (let r = 0; r < MS_ROWS; r++) {
+        for (let c = 0; c < MS_COLS; c++) {
+            if (msBoard[r][c] === -1) continue;
+            let count = 0;
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < MS_ROWS && nc >= 0 && nc < MS_COLS && msBoard[nr][nc] === -1) count++;
+                }
+            }
+            msBoard[r][c] = count;
+        }
+    }
+}
+
+function msGetCell(r, c) {
+    return document.querySelector(`#ms-board .ms-cell[data-row="${r}"][data-col="${c}"]`);
+}
+
+function msReveal(r, c) {
+    if (!msGameActive || msRevealed[r][c] || msFlagged[r][c]) return;
+    if (msFirstClick) {
+        msFirstClick = false;
+        msPlaceMines(r, c);
+        msTimerInterval = setInterval(() => {
+            msTimerVal++;
+            document.getElementById('ms-timer').textContent = msTimerVal;
+        }, 1000);
+    }
+    if (msBoard[r][c] === -1) {
+        // Hit mine - game over
+        msGameActive = false;
+        clearInterval(msTimerInterval);
+        const hitCell = msGetCell(r, c);
+        hitCell.classList.add('ms-exploded');
+        hitCell.textContent = '\u{1F4A5}';
+        // Reveal all mines
+        for (let rr = 0; rr < MS_ROWS; rr++) {
+            for (let cc = 0; cc < MS_COLS; cc++) {
+                if (msBoard[rr][cc] === -1 && !(rr === r && cc === c)) {
+                    const mc = msGetCell(rr, cc);
+                    mc.classList.add('ms-revealed', 'ms-mine');
+                    mc.textContent = '\u{1F4A3}';
+                }
+            }
+        }
+        const msg = document.getElementById('ms-msg');
+        msg.textContent = '\u{1F4A3} 펑! 지뢰를 밟았습니다...';
+        msg.className = 'game-msg msg-error';
+        document.getElementById('ms-restart').style.display = '';
+        return;
+    }
+    // BFS flood fill for 0-cells
+    const queue = [[r, c]];
+    while (queue.length) {
+        const [cr, cc] = queue.shift();
+        if (cr < 0 || cr >= MS_ROWS || cc < 0 || cc >= MS_COLS) continue;
+        if (msRevealed[cr][cc] || msFlagged[cr][cc]) continue;
+        msRevealed[cr][cc] = true;
+        const cell = msGetCell(cr, cc);
+        cell.classList.add('ms-revealed');
+        const val = msBoard[cr][cc];
+        if (val > 0) {
+            cell.textContent = val;
+            cell.classList.add('ms-n' + val);
+        } else if (val === 0) {
+            // Expand neighbors
+            for (let dr = -1; dr <= 1; dr++)
+                for (let dc = -1; dc <= 1; dc++)
+                    if (dr !== 0 || dc !== 0) queue.push([cr + dr, cc + dc]);
+        }
+    }
+    msCheckWin();
+}
+
+function msCheckWin() {
+    let revealed = 0;
+    for (let r = 0; r < MS_ROWS; r++)
+        for (let c = 0; c < MS_COLS; c++)
+            if (msRevealed[r][c]) revealed++;
+    if (revealed === MS_ROWS * MS_COLS - MS_MINES) {
+        msGameActive = false;
+        clearInterval(msTimerInterval);
+        // Auto-flag remaining mines
+        for (let r = 0; r < MS_ROWS; r++) {
+            for (let c = 0; c < MS_COLS; c++) {
+                if (msBoard[r][c] === -1 && !msFlagged[r][c]) {
+                    const cell = msGetCell(r, c);
+                    cell.textContent = '\u{1F6A9}';
+                    cell.classList.add('ms-flagged');
+                }
+            }
+        }
+        document.getElementById('ms-mine-count').textContent = '0';
+        setTimeout(() => showClearScreen('minesweeper'), 800);
+    }
+}
+
+function msToggleFlag(r, c) {
+    if (!msGameActive || msRevealed[r][c]) return;
+    const cell = msGetCell(r, c);
+    if (msFlagged[r][c]) {
+        msFlagged[r][c] = false;
+        msFlagCount--;
+        cell.textContent = '';
+        cell.classList.remove('ms-flagged');
+    } else {
+        msFlagged[r][c] = true;
+        msFlagCount++;
+        cell.textContent = '\u{1F6A9}';
+        cell.classList.add('ms-flagged');
+    }
+    document.getElementById('ms-mine-count').textContent = MS_MINES - msFlagCount;
+}
+
+function msRestart() {
+    msInit();
+}
+
 // ============ 클리어 화면 ============
 function showClearScreen(type) {
     // 현재 게임 숨기기
     document.getElementById('restday-sudoku').style.display = 'none';
     document.getElementById('restday-slot').style.display = 'none';
+    document.getElementById('restday-tetris').style.display = 'none';
+    document.getElementById('restday-minesweeper').style.display = 'none';
+    // Cleanup game loops
+    if (tetrisRafId) { cancelAnimationFrame(tetrisRafId); tetrisRafId = null; }
+    if (tetrisKeyHandler) { document.removeEventListener('keydown', tetrisKeyHandler); tetrisKeyHandler = null; }
+    if (msTimerInterval) { clearInterval(msTimerInterval); msTimerInterval = null; }
 
     const clearDiv = document.getElementById('restday-clear');
     clearDiv.style.display = 'block';
@@ -1038,10 +1589,18 @@ function showClearScreen(type) {
         document.getElementById('clear-emoji').textContent = '🧩';
         document.getElementById('clear-title').textContent = 'SUDOKU CLEAR!';
         document.getElementById('clear-sub').textContent = '3판 연속 클리어! 두뇌 풀가동 완료.';
-    } else {
+    } else if (type === 'slot') {
         document.getElementById('clear-emoji').textContent = '🎰';
         document.getElementById('clear-title').textContent = 'JACKPOT 777!';
         document.getElementById('clear-sub').textContent = `${slotAttempts}번 만에 성공! 오늘의 운세: 대길.`;
+    } else if (type === 'tetris') {
+        document.getElementById('clear-emoji').textContent = '🧱';
+        document.getElementById('clear-title').textContent = 'TETRIS CLEAR!';
+        document.getElementById('clear-sub').textContent = `${TETRIS_CLEAR_LINES}줄 클리어! 점수: ${tetrisScore}점`;
+    } else if (type === 'minesweeper') {
+        document.getElementById('clear-emoji').textContent = '💣';
+        document.getElementById('clear-title').textContent = 'MINE CLEAR!';
+        document.getElementById('clear-sub').textContent = `${msTimerVal}초 만에 지뢰밭 탈출!`;
     }
 
     // 색종이 파티클
@@ -1064,6 +1623,10 @@ function showClearScreen(type) {
 
 // ============ 오버레이 닫기 ============
 function closeRestday() {
+    // Cleanup any running game loops
+    if (tetrisRafId) { cancelAnimationFrame(tetrisRafId); tetrisRafId = null; }
+    if (tetrisKeyHandler) { document.removeEventListener('keydown', tetrisKeyHandler); tetrisKeyHandler = null; }
+    if (msTimerInterval) { clearInterval(msTimerInterval); msTimerInterval = null; }
     const overlay = document.getElementById('restday-overlay');
     const toast = document.createElement('div');
     toast.className = 'restday-toast';
@@ -1093,7 +1656,8 @@ function closeRestday() {
             clicked = true;
             const popup = document.getElementById('restday-popup');
             const intro = document.getElementById('restday-intro');
-            activeGameType = Math.random() < 0.5 ? 'sudoku' : 'slot';
+            const gameTypes = ['sudoku', 'slot', 'tetris', 'minesweeper'];
+            activeGameType = gameTypes[Math.floor(Math.random() * gameTypes.length)];
 
             intro.style.transition = 'opacity 0.3s, transform 0.3s';
             intro.style.opacity = '0';
@@ -1108,10 +1672,20 @@ function closeRestday() {
                     el.style.display = 'block';
                     el.classList.add('game-appear');
                     renderSudoku();
-                } else {
+                } else if (activeGameType === 'slot') {
                     const el = document.getElementById('restday-slot');
                     el.style.display = 'block';
                     el.classList.add('game-appear');
+                } else if (activeGameType === 'tetris') {
+                    const el = document.getElementById('restday-tetris');
+                    el.style.display = 'block';
+                    el.classList.add('game-appear');
+                    tetrisInit();
+                } else if (activeGameType === 'minesweeper') {
+                    const el = document.getElementById('restday-minesweeper');
+                    el.style.display = 'block';
+                    el.classList.add('game-appear');
+                    msInit();
                 }
             }, 350);
         });
