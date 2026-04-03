@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}기사 선택 - 더벨 News Clipper{% endblock %}
+{% block title %}기사 선택 - 딜사이트플러스 News Clipper{% endblock %}
 {% block content %}
 <div class="container">
     <h1>기사 선택</h1>
@@ -13,20 +13,20 @@
         </div>
 
         {% if session.status.value == 'crawl_done' and not session.recommendations %}
-        <div id="recommend-action" style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <label for="max-count" style="font-size: 14px; font-weight: 500;">추천 기사 수:</label>
+        <div id="recommend-action" style="margin-bottom: 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px; background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius);">
+            <label for="max-count" style="font-size: 14px; font-weight: 600; color: var(--text);">추천 기사 수:</label>
             <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
-                   placeholder="예: 20" style="width: 80px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;">
-            <span style="font-size: 13px; color: var(--text-light);">/ {{ session.articles | length }}개</span>
-            <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
-            <span id="recommend-status" style="color: var(--text-light);"></span>
+                   placeholder="예: 20" style="width: 80px; padding: 8px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); font-size: 14px; background: var(--bg); color: var(--text); font-family: inherit;">
+            <span style="font-size: 13px; color: var(--text-muted);">/ {{ session.articles | length }}개</span>
+            <button class="btn btn-primary" onclick="requestRecommend()">&#x2728; AI 추천 받기</button>
+            <span id="recommend-status" style="color: var(--text-secondary);"></span>
         </div>
         {% endif %}
 
         <div class="select-actions">
             <button class="btn btn-sm" onclick="selectAll(true)">전체 선택</button>
             <button class="btn btn-sm" onclick="selectAll(false)">전체 해제</button>
-            <span id="selection-count" style="margin-left: 12px; font-weight: 500;">0 / {{ session.articles | length }} 선택됨</span>
+            <span id="selection-count" style="margin-left: 12px; font-weight: 600; color: var(--text-secondary);">0 / {{ session.articles | length }} 선택됨</span>
         </div>
 
         <!-- LLM Recommend Tab -->
@@ -63,7 +63,7 @@
             </div>
             {% endfor %}
             {% else %}
-            <p style="color: var(--text-light);">AI 추천을 요청하거나, '전체 목록' 탭에서 수동으로 선택하세요.</p>
+            <p style="color: var(--text-muted);">AI 추천을 요청하거나, '전체 목록' 탭에서 수동으로 선택하세요.</p>
             {% endif %}
         </div>
 
@@ -98,8 +98,8 @@
     </div>
 
     <div class="card" style="text-align: center;">
-        <button class="btn btn-primary" onclick="confirmSelection()" style="font-size: 16px; padding: 12px 32px;">
-            선택 확정 및 PDF 생성
+        <button class="btn btn-primary" onclick="confirmSelection()" style="font-size: 16px; padding: 14px 36px; border-radius: 14px;">
+            &#x1F680; 선택 확정 및 PDF 생성
         </button>
     </div>
 </div>
