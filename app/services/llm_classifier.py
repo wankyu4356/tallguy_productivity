@@ -23,7 +23,8 @@ CLASSIFICATION_TAXONOMY = """[딜사이트플러스]
       - 건설/부동산
       - 바이오/헬스케어
    B. 기타 주요 산업 관련 업계 동향
-3. Fundraising, LP 이슈 및 GP 선정"""
+3. Stock (주식/증권 시장)
+4. Fundraising, LP 이슈 및 GP 선정"""
 
 RECOMMEND_SYSTEM_PROMPT = """당신은 한국 금융/투자 업계의 뉴스 분석 전문가입니다.
 사모펀드(PE) 투자 전문가의 시각에서 기사의 유의미성을 판단합니다.
@@ -31,6 +32,7 @@ RECOMMEND_SYSTEM_PROMPT = """당신은 한국 금융/투자 업계의 뉴스 분
 다음 기준으로 기사를 추천해주세요:
 - Deal 관련: M&A, 투자 유치, 투자회수, IPO, 구조조정 등 거래 관련
 - Industry: PE 포트폴리오와 관련된 산업 동향 (환경/폐기물, 건설/부동산, 바이오/헬스케어)
+- Stock: 주식/증권 시장 동향, 주가 변동, 수급, 주주환원 등
 - Fundraising: 펀드레이징, LP 이슈, GP 선정 관련
 - 일반적인 시장 동향이나 개별 기업 실적 기사는 제외
 
@@ -195,7 +197,18 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
   ✅ "반도체 업황 회복세" → industry_etc
   ✅ "유통업계 구조조정" → industry_etc
 
-### 규칙 8: 펀드레이징/LP/GP → Fundraising, LP 이슈 및 GP 선정 (fundraising)
+### 규칙 8: 주식/증권 시장 → Stock (stock)
+대상: 주식 시장 동향, 증권 시장, 주가 변동, 상장사 주가 이슈, 블록딜(주식 대량매매 관점),
+     공매도, 자사주 매입/소각, 배당, 주주환원, 증시 전망, 코스피/코스닥 지수,
+     외국인/기관 수급, 테마주, 주식 관련 규제/정책
+예시:
+  ✅ "코스피 3000 돌파 전망" → stock
+  ✅ "외국인 순매수 확대" → stock
+  ✅ "○○기업 자사주 매입 결정" → stock
+  ✅ "공매도 재개 영향 분석" → stock
+  ⚠️ 단, IPO/상장 자체는 exit, PE의 블록딜 Exit은 exit로 분류
+
+### 규칙 9: 펀드레이징/LP/GP → Fundraising, LP 이슈 및 GP 선정 (fundraising)
 대상: 블라인드펀드 결성, 프로젝트펀드, LP(유한책임사원) 출자, GP(무한책임사원) 선정,
      국민연금/공제회 등 기관투자자 출자, 펀드 클로징, 앵커 LP 확보,
      GP 탈락/선정, 운용사 설립/인가
@@ -250,6 +263,7 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
       "bio_healthcare": ["기사ID", ...],
       "etc": ["기사ID", ...]
     }},
+    "stock": ["기사ID", ...],
     "fundraising": ["기사ID", ...]
   }},
   "article_order": ["기사ID1", "기사ID2", ...],
@@ -258,7 +272,7 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
   }}
 }}
 
-article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중요도 내림차순."""
+article_order는 Deal → Industry → Stock → Fundraising 순서로, 각 섹션 내 중요도 내림차순."""
 
     # API 키 검증
     if not settings.ANTHROPIC_API_KEY:
@@ -377,6 +391,7 @@ def _fallback_classification(articles: list[ArticleWithContent], reason: str = "
                     ClassificationSubcategory(name="기타 주요 산업 관련 업계 동향"),
                 ],
             ),
+            ClassificationCategory(name="Stock"),
             ClassificationCategory(name="Fundraising, LP 이슈 및 GP 선정"),
         ],
     )
@@ -431,6 +446,7 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
 
     deal = cls.get("deal", {})
     industry = cls.get("industry", {})
+    stock = cls.get("stock", [])
     fundraising = cls.get("fundraising", [])
 
     categories = [
@@ -476,6 +492,10 @@ def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> Cla
                     articles=normalize_ids(industry.get("etc", [])),
                 ),
             ],
+        ),
+        ClassificationCategory(
+            name="Stock",
+            articles=normalize_ids(stock if isinstance(stock, list) else []),
         ),
         ClassificationCategory(
             name="Fundraising, LP 이슈 및 GP 선정",
