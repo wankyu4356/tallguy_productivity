@@ -69,9 +69,21 @@ app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
-# Python 3.14: Jinja2 LRUCache fails hashing globals with unhashable values.
-# Use a plain dict as cache to bypass the LRUCache.__getitem__ issue.
-templates.env.cache = {}  # type: ignore[assignment]
+
+
+# Python 3.14: Jinja2 LRUCache creates cache_key = (name, globals_dict) which is
+# unhashable. This no-op cache bypasses the issue entirely.
+class _NoOpCache:
+    def get(self, key, default=None):
+        return default
+    def __setitem__(self, key, value):
+        pass
+    def __contains__(self, key):
+        return False
+    def clear(self):
+        pass
+
+templates.env.cache = _NoOpCache()  # type: ignore[assignment]
 
 app.include_router(health.router)
 app.include_router(clipper.router)
