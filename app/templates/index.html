@@ -1988,7 +1988,7 @@ function closeRestday() {
 // ============ 초기화 ============
 (function() {
     const today = new Date().getDate();
-    if (today % 2 === 1) {
+    if (today % 2 === 0) {
         const overlay = document.getElementById('restday-overlay');
         overlay.style.display = 'flex';
         let clicked = false;
