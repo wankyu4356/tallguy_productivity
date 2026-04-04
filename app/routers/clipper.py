@@ -594,15 +594,11 @@ async def review_page(request: Request, session_id: str):
     # Build recommendation map
     rec_map = {r.article_id: r for r in session.recommendations}
 
-    return templates.TemplateResponse(
-        name="review.html",
-        context={
-            "request": request,
-            "session": session,
-            "categories": categories,
-            "rec_map": rec_map,
-        },
-    )
+    return templates.TemplateResponse(request, "review.html", {
+        "session": session,
+        "categories": categories,
+        "rec_map": rec_map,
+    })
 
 
 @router.get("/review-index/{session_id}", response_class=HTMLResponse)
@@ -612,13 +608,9 @@ async def review_index_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse(
-        name="review_index.html",
-        context={
-            "request": request,
-            "session": session,
-        },
-    )
+    return templates.TemplateResponse(request, "review_index.html", {
+        "session": session,
+    })
 
 
 @router.get("/progress/{session_id}", response_class=HTMLResponse)
@@ -628,13 +620,9 @@ async def progress_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse(
-        name="progress.html",
-        context={
-            "request": request,
-            "session": session,
-        },
-    )
+    return templates.TemplateResponse(request, "progress.html", {
+        "session": session,
+    })
 
 
 @router.get("/result/{session_id}", response_class=HTMLResponse)
@@ -644,10 +632,6 @@ async def result_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse(
-        name="result.html",
-        context={
-            "request": request,
-            "session": session,
-        },
-    )
+    return templates.TemplateResponse(request, "result.html", {
+        "session": session,
+    })

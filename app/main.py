@@ -93,14 +93,10 @@ app.include_router(clipper.router)
 async def index(request: Request):
     from app.services.business_day import get_clipping_window
     date_from, date_to = get_clipping_window()
-    return templates.TemplateResponse(
-        name="index.html",
-        context={
-            "request": request,
-            "date_from": date_from,
-            "date_to": date_to,
-            "date_from_str": date_from.strftime("%Y-%m-%dT%H:%M"),
-            "date_to_str": date_to.strftime("%Y-%m-%dT%H:%M"),
-            "sessions": sessions,
-        },
-    )
+    return templates.TemplateResponse(request, "index.html", {
+        "date_from": date_from,
+        "date_to": date_to,
+        "date_from_str": date_from.strftime("%Y-%m-%dT%H:%M"),
+        "date_to_str": date_to.strftime("%Y-%m-%dT%H:%M"),
+        "sessions": sessions,
+    })
