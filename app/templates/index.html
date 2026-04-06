@@ -29,7 +29,7 @@
             <div class="sdk-header">
                 <div class="game-emoji">&#x1F9E9;</div>
                 <h2 class="game-title">스도쿠 챌린지</h2>
-                <p class="game-sub" id="sdk-sub">각 행, 열, 박스에 숫자를 한 번씩!<br>4×4 → 6×6 → 9×9 단계별 도전</p>
+                <p class="game-sub" id="sdk-sub">각 행, 열, 박스에 숫자를 한 번씩!<br>4×4 → 6×6 → 9×9 → 9×9 암막 단계별 도전</p>
             </div>
             <div class="sdk-difficulty" id="sdk-difficulty">
                 <span class="sdk-diff-badge" id="sdk-diff-badge">EASY</span>
@@ -40,6 +40,8 @@
                 <div class="sdk-pip" id="sdk-pip-1"><span class="pip-num">2</span><span class="pip-label">6×6</span></div>
                 <div class="sdk-pip-line"></div>
                 <div class="sdk-pip" id="sdk-pip-2"><span class="pip-num">3</span><span class="pip-label">9×9</span></div>
+                <div class="sdk-pip-line"></div>
+                <div class="sdk-pip" id="sdk-pip-3"><span class="pip-num">4</span><span class="pip-label">암막</span></div>
             </div>
             <div class="sudoku-board" id="sudoku-board"></div>
             <div class="sdk-numpad" id="sdk-numpad"></div>
@@ -97,7 +99,16 @@
             </div>
             <div class="tetris-play-area">
                 <canvas id="tetris-canvas" width="200" height="400"></canvas>
-                <canvas id="tetris-next" width="80" height="80"></canvas>
+                <div class="tetris-side-panel">
+                    <canvas id="tetris-next" width="80" height="80"></canvas>
+                    <div class="tetris-keys-guide">
+                        <div class="keys-guide-title">조작법</div>
+                        <div class="keys-guide-row"><kbd>&larr;</kbd><kbd>&rarr;</kbd> 이동</div>
+                        <div class="keys-guide-row"><kbd>&uarr;</kbd> 회전</div>
+                        <div class="keys-guide-row"><kbd>&darr;</kbd> 소프트드롭</div>
+                        <div class="keys-guide-row"><kbd>Space</kbd> 하드드롭</div>
+                    </div>
+                </div>
             </div>
             <div class="tetris-controls" id="tetris-controls">
                 <button class="tetris-ctrl-btn" id="tc-left" aria-label="왼쪽">&#x2B05;&#xFE0F;</button>
@@ -120,7 +131,20 @@
                 <span class="ms-stat">&#x1F4A3; <span id="ms-mine-count">10</span></span>
                 <span class="ms-stat">&#x23F1;&#xFE0F; <span id="ms-timer">0</span>초</span>
             </div>
-            <div class="ms-board" id="ms-board"></div>
+            <div class="ms-play-area">
+                <div class="ms-board" id="ms-board"></div>
+                <div class="ms-rules-guide">
+                    <div class="ms-rules-title">규칙</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon">&#x1F5B1;&#xFE0F;</span> 클릭: 칸 열기</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon">&#x1F5B1;&#xFE0F;</span> 우클릭: 깃발</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon">&#x1F4A3;</span> 지뢰 = 게임 오버</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon" style="color:#2563eb">1</span> = 주변 지뢰 1개</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon" style="color:#16a34a">2</span> = 주변 지뢰 2개</div>
+                    <div class="ms-rule-item"><span class="ms-rule-icon" style="color:#dc2626">3</span> = 주변 지뢰 3개</div>
+                    <div class="ms-rule-divider"></div>
+                    <div class="ms-rule-tip">지뢰 아닌 칸을 모두 열면 클리어!</div>
+                </div>
+            </div>
             <div class="game-msg" id="ms-msg"></div>
             <button class="game-btn" id="ms-restart" style="display:none;" onclick="msRestart()">&#x1F504; 다시 시작</button>
             <p class="ms-hint">&#x1F4F1; 길게 누르면 깃발 꽂기</p>
@@ -630,6 +654,39 @@
 .sdk-erase { font-size: 18px; color: #f5576c; border-color: #fdd; }
 .sdk-erase:hover { background: #f5576c; color: white; border-color: #f5576c; }
 
+/* 암막 커튼 효과 */
+.sudoku-cell.blackout {
+    background: #1a1a2e !important; color: transparent !important;
+    cursor: default !important; position: relative;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sudoku-cell.blackout::after {
+    content: '?'; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); color: #4a4a6a; font-size: 16px; font-weight: 800;
+}
+.sudoku-cell.blackout-reveal {
+    animation: blackout-reveal 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes blackout-reveal {
+    0% { background: #1a1a2e; color: transparent; transform: scale(0.8) rotateY(90deg); }
+    50% { transform: scale(1.1) rotateY(0deg); }
+    100% { transform: scale(1); }
+}
+.sdk-blackout-banner {
+    background: linear-gradient(135deg, #f5576c, #ff6b6b); color: white;
+    padding: 6px 16px; border-radius: 8px; font-size: 12px; font-weight: 700;
+    margin-bottom: 8px; display: inline-block;
+    animation: banner-pulse 1.5s ease-in-out infinite;
+}
+@keyframes banner-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(245,87,108,0.4); }
+    50% { box-shadow: 0 0 14px 4px rgba(245,87,108,0.25); }
+}
+.sdk-diff-badge.diff-extreme {
+    background: linear-gradient(135deg, #f5576c, #764ba2); color: white;
+    animation: hard-pulse 1.2s ease-in-out infinite;
+}
+
 /* === 슬롯머신 === */
 .slot-header { margin-bottom: 16px; position: relative; }
 .slot-title {
@@ -765,6 +822,9 @@
 .tetris-play-area {
     display: flex; justify-content: center; align-items: flex-start; gap: 12px;
 }
+.tetris-side-panel {
+    display: flex; flex-direction: column; gap: 12px; align-items: center;
+}
 #tetris-canvas {
     border: 3px solid #2d2b55; border-radius: 8px;
     background: #f8f8ff;
@@ -774,6 +834,19 @@
     border: 2px solid #e0e0ee; border-radius: 8px;
     background: #fafafe;
 }
+.tetris-keys-guide {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 10px 12px; font-size: 11px; color: #9ca3af;
+    text-align: left; width: 100%;
+}
+.keys-guide-title { font-weight: 700; color: #c4b5fd; margin-bottom: 6px; font-size: 12px; }
+.keys-guide-row { margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+.keys-guide-row kbd {
+    display: inline-block; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px; padding: 1px 5px; font-size: 10px; font-family: inherit;
+    color: #e4e4ef; min-width: 20px; text-align: center;
+}
+@media (max-width: 768px) { .tetris-keys-guide { display: none; } }
 .tetris-controls {
     display: flex; justify-content: center; gap: 8px; margin-top: 12px;
 }
@@ -823,6 +896,18 @@
 .ms-cell.ms-n7 { color: #1a1a2e; } .ms-cell.ms-n8 { color: #6b7280; }
 .ms-hint { font-size: 11px; color: #6b7280; margin-top: 8px; }
 @media (min-width: 769px) { .ms-hint { display: none; } }
+.ms-play-area { display: flex; justify-content: center; align-items: flex-start; gap: 16px; }
+.ms-rules-guide {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 12px 14px; font-size: 12px; color: #9ca3af;
+    text-align: left; min-width: 130px;
+}
+.ms-rules-title { font-weight: 700; color: #f87171; margin-bottom: 8px; font-size: 13px; }
+.ms-rule-item { margin-bottom: 5px; display: flex; align-items: center; gap: 6px; line-height: 1.3; }
+.ms-rule-icon { font-size: 13px; min-width: 18px; text-align: center; font-weight: 800; }
+.ms-rule-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 0; }
+.ms-rule-tip { font-size: 11px; color: #6b7280; font-style: italic; }
+@media (max-width: 768px) { .ms-rules-guide { display: none; } .ms-play-area { gap: 0; } }
 
 /* === 다트 게임 === */
 .evenday-overlay {
@@ -893,9 +978,11 @@ const DIFFICULTY = [
     { name: 'EASY',   label: 'Easy',   gridSize: 4, boxRows: 2, boxCols: 2, givenCount: 10, cls: 'diff-easy',   desc: '4×4 워밍업' },
     { name: 'NORMAL', label: 'Normal', gridSize: 6, boxRows: 2, boxCols: 3, givenCount: 18, cls: 'diff-normal', desc: '6×6 중급' },
     { name: 'HARD',   label: 'Hard!',  gridSize: 9, boxRows: 3, boxCols: 3, givenCount: 32, cls: 'diff-hard',   desc: '9×9 정통 스도쿠' },
+    { name: 'EXTREME', label: 'Extreme!', gridSize: 9, boxRows: 3, boxCols: 3, givenCount: 28, cls: 'diff-extreme', desc: '9×9 암막 스도쿠', blackout: true },
 ];
 
 let sudokuRound = 0, sudokuPuzzles = [], currentPuzzle = null, selectedCell = null;
+let blackoutActive = false, blackoutGivenIndices = [], blackoutWave = 0, blackoutHidden = new Set();
 
 // 배열 셔플 (Fisher-Yates)
 function sdkShuffle(arr) {
@@ -968,7 +1055,7 @@ function pickSudokuPuzzles() {
 }
 
 function updateSdkPips() {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
         const pip = document.getElementById('sdk-pip-' + i);
         pip.classList.remove('active', 'done');
         if (i < sudokuRound) pip.classList.add('done');
@@ -977,7 +1064,7 @@ function updateSdkPips() {
     document.querySelectorAll('.sdk-pip-line').forEach((line, i) => {
         line.classList.toggle('done', i < sudokuRound);
     });
-    const diff = sudokuPuzzles[Math.min(sudokuRound, 2)].difficulty;
+    const diff = sudokuPuzzles[Math.min(sudokuRound, 3)].difficulty;
     const badge = document.getElementById('sdk-diff-badge');
     badge.textContent = diff.name;
     badge.className = 'sdk-diff-badge ' + diff.cls;
@@ -1009,16 +1096,25 @@ function renderSudoku() {
     board.innerHTML = '';
     board.className = 'sudoku-board grid-' + gridSize;
     selectedCell = null;
+    blackoutActive = !!diff.blackout;
+    blackoutWave = 0;
+    blackoutHidden = new Set();
+    blackoutGivenIndices = [...currentPuzzle.given];
     updateSdkPips();
     buildNumpad(gridSize);
 
     // Update description
     const sub = document.getElementById('sdk-sub');
-    sub.innerHTML = `각 행, 열, ${diff.boxRows}×${diff.boxCols} 박스에 <strong>1~${gridSize}</strong>를 한 번씩! (${diff.desc})`;
+    sub.innerHTML = diff.blackout
+        ? `암막 모드! 풀다 보면 힌트가 <strong>사라집니다</strong>... (${diff.desc})`
+        : `각 행, 열, ${diff.boxRows}×${diff.boxCols} 박스에 <strong>1~${gridSize}</strong>를 한 번씩! (${diff.desc})`;
 
     document.getElementById('sudoku-msg').textContent = '';
     document.getElementById('sudoku-msg').className = 'game-msg';
     document.getElementById('sudoku-check').disabled = false;
+    // Remove old blackout banner if any
+    const oldBanner = document.getElementById('sdk-blackout-banner');
+    if (oldBanner) oldBanner.remove();
 
     const totalCells = gridSize * gridSize;
     for (let i = 0; i < totalCells; i++) {
@@ -1048,6 +1144,49 @@ function renderSudoku() {
         div.style.animation = `cell-pop 0.3s ${i * 0.012}s cubic-bezier(0.34,1.56,0.64,1) both`;
         board.appendChild(div);
     }
+
+    // Start blackout timer for extreme mode
+    if (blackoutActive) {
+        setTimeout(() => triggerBlackout(), 3000);
+    }
+}
+
+function triggerBlackout() {
+    if (!blackoutActive || !currentPuzzle) return;
+    const diff = currentPuzzle.difficulty;
+    const gridSize = diff.gridSize;
+    // Reveal previously hidden cells
+    blackoutHidden.forEach(idx => {
+        const cell = document.querySelector(`#sudoku-board .sudoku-cell[data-idx="${idx}"]`);
+        if (cell && cell.classList.contains('blackout')) {
+            cell.classList.remove('blackout');
+            cell.classList.add('blackout-reveal');
+            cell.textContent = currentPuzzle.solution[idx];
+            setTimeout(() => cell.classList.remove('blackout-reveal'), 600);
+        }
+    });
+    blackoutWave++;
+    // Pick ~40% of given cells to hide (different each wave)
+    const shuffled = sdkShuffle(blackoutGivenIndices);
+    const hideCount = Math.floor(blackoutGivenIndices.length * 0.4);
+    blackoutHidden = new Set(shuffled.slice(0, hideCount));
+    // Apply blackout with staggered animation
+    let delay = 0;
+    blackoutHidden.forEach(idx => {
+        const cell = document.querySelector(`#sudoku-board .sudoku-cell[data-idx="${idx}"]`);
+        if (cell) {
+            setTimeout(() => {
+                cell.classList.add('blackout');
+                cell.textContent = '';
+            }, delay);
+            delay += 40;
+        }
+    });
+    // Show banner
+    const msg = document.getElementById('sudoku-msg');
+    msg.textContent = `암막 ${blackoutWave}차 발동! 기억에 의존하세요...`;
+    msg.className = 'game-msg msg-error';
+    setTimeout(() => { if (msg.textContent.includes('암막')) { msg.textContent = ''; msg.className = 'game-msg'; } }, 2500);
 }
 
 function selectCell(cell) {
@@ -1073,9 +1212,29 @@ function sdkInput(num) {
         const next = allInputs[(curIdx + i) % allInputs.length];
         if (!next.textContent) { selectCell(next); break; }
     }
+    // Blackout mode: trigger new wave every 4 cells filled
+    if (blackoutActive && num !== 0) {
+        const filledCount = allInputs.filter(c => c.textContent).length;
+        if (filledCount > 0 && filledCount % 4 === 0) {
+            setTimeout(() => triggerBlackout(), 300);
+        }
+    }
 }
 
 function checkSudoku() {
+    // Reveal all blackout cells before checking
+    if (blackoutActive) {
+        blackoutHidden.forEach(idx => {
+            const cell = document.querySelector(`#sudoku-board .sudoku-cell[data-idx="${idx}"]`);
+            if (cell && cell.classList.contains('blackout')) {
+                cell.classList.remove('blackout');
+                cell.classList.add('blackout-reveal');
+                cell.textContent = currentPuzzle.solution[idx];
+            }
+        });
+        blackoutHidden = new Set();
+        blackoutActive = false;
+    }
     const cells = document.querySelectorAll('#sudoku-board .input-cell');
     const msg = document.getElementById('sudoku-msg');
     let allCorrect = true, allFilled = true;
@@ -1093,14 +1252,14 @@ function checkSudoku() {
         }
     });
 
-    if (!allFilled) { msg.textContent = '빈 칸을 모두 채워주세요!'; msg.className = 'game-msg msg-error'; return; }
-    if (!allCorrect) { msg.textContent = '틀린 칸이 있어요! 빨간 칸을 확인해보세요'; msg.className = 'game-msg msg-error'; return; }
+    if (!allFilled) { msg.textContent = '빈 칸을 모두 채워주세요!'; msg.className = 'game-msg msg-error'; blackoutActive = !!currentPuzzle.difficulty.blackout; return; }
+    if (!allCorrect) { msg.textContent = '틀린 칸이 있어요! 빨간 칸을 확인해보세요'; msg.className = 'game-msg msg-error'; blackoutActive = !!currentPuzzle.difficulty.blackout; return; }
 
     const clearedDiff = sudokuPuzzles[sudokuRound].difficulty.name;
     sudokuRound++;
     updateSdkPips();
-    if (sudokuRound >= 3) {
-        msg.textContent = 'HARD 클리어! 전 난이도 정복!';
+    if (sudokuRound >= 4) {
+        msg.textContent = 'EXTREME 클리어! 전 난이도 정복!';
         msg.className = 'game-msg msg-success';
         document.getElementById('sudoku-check').disabled = true;
         setTimeout(() => showClearScreen('sudoku'), 800);
@@ -1271,7 +1430,7 @@ function tetrisLock() {
         const points = [0, 100, 300, 500, 800];
         tetrisScore += points[cleared] || 800;
         tetrisLinesCleared += cleared;
-        tetrisSpeed = Math.max(100, 500 - tetrisLinesCleared * 40);
+        tetrisSpeed = Math.max(70, 400 - tetrisLinesCleared * 45);
         document.getElementById('tetris-lines').textContent = `${Math.min(tetrisLinesCleared, TETRIS_CLEAR_LINES)} / ${TETRIS_CLEAR_LINES} 라인`;
         document.getElementById('tetris-score-val').textContent = tetrisScore;
         if (tetrisLinesCleared >= TETRIS_CLEAR_LINES) {
@@ -1417,7 +1576,7 @@ function tetrisInit() {
     tetrisNextCanvas = document.getElementById('tetris-next');
     tetrisNextCtx = tetrisNextCanvas.getContext('2d');
     tetrisBoard = Array.from({length: TETRIS_ROWS}, () => new Array(TETRIS_COLS).fill(0));
-    tetrisScore = 0; tetrisLinesCleared = 0; tetrisSpeed = 500;
+    tetrisScore = 0; tetrisLinesCleared = 0; tetrisSpeed = 400;
     tetrisGameOverFlag = false; tetrisLastDrop = 0;
     tetrisCurrent = tetrisNewPiece();
     tetrisNextPiece = tetrisNewPiece();
