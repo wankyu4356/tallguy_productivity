@@ -284,11 +284,11 @@ def _load_login_page(driver) -> bool:
             logger.debug(f"로그인 URL 타임아웃: {url}")
             continue
 
-        time.sleep(3)
+        time.sleep(1)
 
         if _is_error_page(driver):
             logger.debug(f"로그인 URL 에러: {url}")
-            time.sleep(2)
+            time.sleep(1)
             if _is_error_page(driver):
                 continue
 
@@ -301,7 +301,7 @@ def _load_login_page(driver) -> bool:
         driver.get(THEBELL_BASE)
     except TimeoutException:
         logger.warning("메인 페이지 타임아웃 (부분 로드로 계속)")
-    time.sleep(2)
+    time.sleep(1)
     return False
 
 
@@ -324,7 +324,7 @@ def _auto_login_sync(driver) -> bool:
     _load_login_page(driver)
 
     # Wait for login form to be ready
-    time.sleep(2)
+    time.sleep(1)
 
     # Attempt to fill and submit login form
     form_submitted = _find_login_form_and_fill(driver, user_id, password)
@@ -333,7 +333,7 @@ def _auto_login_sync(driver) -> bool:
         return False
 
     # Wait for login to process
-    time.sleep(3)
+    time.sleep(1)
 
     # Check for security module blocking (보안 프로그램 설치 요구)
     try:
@@ -361,7 +361,7 @@ def _auto_login_sync(driver) -> bool:
         driver.get(THEBELL_BASE)
     except TimeoutException:
         logger.warning("로그인 확인 페이지 타임아웃 (부분 로드로 계속)")
-    time.sleep(2)
+    time.sleep(1)
 
     if _check_logged_in(driver):
         logger.info("자동 로그인 성공!")
@@ -391,7 +391,7 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
             if current_url != last_url:
                 logger.info(f"페이지 이동 감지 | {last_url} → {current_url}")
                 last_url = current_url
-                time.sleep(2)  # Wait for new page to fully load
+                time.sleep(1)  # Wait for new page to fully load
 
             if _check_logged_in(driver):
                 logger.info("수동 로그인 성공!")
@@ -399,7 +399,7 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
 
         except Exception:
             pass
-        time.sleep(3)
+        time.sleep(1)
 
     logger.error("로그인 타임아웃 (5분)")
     return False
@@ -520,7 +520,7 @@ def _navigate_to_main(driver):
         driver.get(THEBELL_BASE)
     except TimeoutException:
         logger.warning("메인 페이지 로드 타임아웃 (부분 로드로 계속)")
-    time.sleep(2)
+    time.sleep(1)
 
 
 def _navigate_to_section(driver, section_code: str) -> bool:
@@ -535,7 +535,7 @@ def _navigate_to_section(driver, section_code: str) -> bool:
     except TimeoutException:
         logger.warning(f"섹션 페이지 로드 타임아웃 (부분 로드로 계속): Code={section_code}")
         # Page may be partially loaded but still usable — continue
-    time.sleep(2)
+    time.sleep(1)
 
     if _is_error_page(driver):
         logger.warning(f"섹션 페이지 에러 | Code={section_code} | url={driver.current_url}")
@@ -593,7 +593,7 @@ def _click_next_page(driver) -> bool:
                     """)
                     if result:
                         logger.info(f"JS 페이지네이션: {func}({next_page})")
-                        time.sleep(2)
+                        time.sleep(1)
                         return True
                 except Exception:
                     continue
@@ -614,7 +614,7 @@ def _click_next_page(driver) -> bool:
                         if el.is_displayed():
                             logger.info(f"onclick 페이지네이션 클릭: {next_page}")
                             el.click()
-                            time.sleep(2)
+                            time.sleep(1)
                             return True
             except Exception:
                 pass
@@ -643,7 +643,7 @@ def _click_next_page(driver) -> bool:
                     if link.is_displayed():
                         logger.info(f"다음 페이지 클릭: '{text or title_attr or alt_attr}'")
                         link.click()
-                        time.sleep(2)
+                        time.sleep(1)
                         return True
         except Exception:
             continue
@@ -670,7 +670,7 @@ def _click_next_page(driver) -> bool:
                             if link.text.strip() == next_num and link.is_displayed():
                                 logger.info(f"페이지 {next_num} 클릭")
                                 link.click()
-                                time.sleep(2)
+                                time.sleep(1)
                                 return True
                 break
     except Exception:
@@ -697,7 +697,7 @@ def _click_next_page(driver) -> bool:
                     driver.get(next_url)
                 except TimeoutException:
                     logger.warning("페이지네이션 타임아웃 (부분 로드로 계속)")
-                time.sleep(2)
+                time.sleep(1)
                 return True
     except Exception:
         pass
