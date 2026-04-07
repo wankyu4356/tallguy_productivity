@@ -318,6 +318,38 @@ async def _finalize_task(session_id: str):
         session.error = str(e)
 
 
+class RewindRequest(BaseModel):
+    target_status: str  # "crawl_done" or "review_ready"
+
+
+@router.post("/api/rewind/{session_id}")
+async def rewind_session(session_id: str, body: RewindRequest):
+    """Rewind session to a previous stage without losing data."""
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    target = body.target_status
+    if target == "crawl_done":
+        # Go back to article selection — keep articles, clear downstream
+        session.status = SessionStatus.CRAWL_DONE
+        session.selected_ids = []
+        # Keep recommendations (expensive LLM call) and articles_with_content
+        # so user doesn't have to redo everything
+        logger.info(f"Session {session_id}: rewound to crawl_done (article selection)")
+        return {"status": "crawl_done"}
+    elif target == "review_ready":
+        # Go back to classification review — keep classification
+        if not session.classification:
+            raise HTTPException(400, "분류 결과가 없어 Index 검수로 돌아갈 수 없습니다.")
+        session.status = SessionStatus.REVIEW_READY
+        logger.info(f"Session {session_id}: rewound to review_ready (index review)")
+        return {"status": "review_ready"}
+    else:
+        raise HTTPException(400, f"Invalid target status: {target}")
+
+
 @router.get("/api/classification/{session_id}")
 async def get_classification(session_id: str):
     """Get current classification tree with article summaries for review."""
