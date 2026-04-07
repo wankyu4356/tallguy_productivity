@@ -297,7 +297,10 @@ def _load_login_page(driver) -> bool:
 
     # Fallback: open main page
     logger.warning("모든 로그인 URL 실패. 메인 페이지를 엽니다.")
-    driver.get(THEBELL_BASE)
+    try:
+        driver.get(THEBELL_BASE)
+    except TimeoutException:
+        logger.warning("메인 페이지 타임아웃 (부분 로드로 계속)")
     time.sleep(2)
     return False
 
@@ -354,7 +357,10 @@ def _auto_login_sync(driver) -> bool:
 
     # Verify login success — ONLY trust page UI indicators, not URL changes
     # Navigate to main page to check for logout button
-    driver.get(THEBELL_BASE)
+    try:
+        driver.get(THEBELL_BASE)
+    except TimeoutException:
+        logger.warning("로그인 확인 페이지 타임아웃 (부분 로드로 계속)")
     time.sleep(2)
 
     if _check_logged_in(driver):
@@ -510,7 +516,10 @@ def _diagnose_page(driver) -> str:
 
 def _navigate_to_main(driver):
     """Navigate to TheBell main page."""
-    driver.get(THEBELL_BASE)
+    try:
+        driver.get(THEBELL_BASE)
+    except TimeoutException:
+        logger.warning("메인 페이지 로드 타임아웃 (부분 로드로 계속)")
     time.sleep(2)
 
 
@@ -521,7 +530,11 @@ def _navigate_to_section(driver, section_code: str) -> bool:
     """
     url = f"{THEBELL_BASE}/front/NewsList.asp?Code={section_code}"
     logger.info(f"섹션 이동: Code={section_code} | url={url}")
-    driver.get(url)
+    try:
+        driver.get(url)
+    except TimeoutException:
+        logger.warning(f"섹션 페이지 로드 타임아웃 (부분 로드로 계속): Code={section_code}")
+        # Page may be partially loaded but still usable — continue
     time.sleep(2)
 
     if _is_error_page(driver):
@@ -680,7 +693,10 @@ def _click_next_page(driver) -> bool:
             # Only try if we haven't visited page > 1 already and this is page 1
             if current_page == 1 or "Page=" in current_url:
                 logger.info(f"URL 기반 페이지네이션: Page={current_page + 1}")
-                driver.get(next_url)
+                try:
+                    driver.get(next_url)
+                except TimeoutException:
+                    logger.warning("페이지네이션 타임아웃 (부분 로드로 계속)")
                 time.sleep(2)
                 return True
     except Exception:
@@ -974,7 +990,10 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
             need_summary = not a.summary
 
             logger.debug(f"상세정보 방문: {a.title[:40]} | url={a.url}")
-            driver.get(a.url)
+            try:
+                driver.get(a.url)
+            except TimeoutException:
+                logger.warning(f"상세페이지 타임아웃 (부분 로드로 계속): {a.title[:30]}")
             time.sleep(0.5)
             consecutive_errors = 0  # reset on successful navigation
 

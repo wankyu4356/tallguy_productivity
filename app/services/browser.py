@@ -82,7 +82,7 @@ class BrowserManager:
         if not self._started:
             raise RuntimeError("BrowserManager not started. Call start() first.")
         driver = await asyncio.to_thread(self._create_driver, headless)
-        driver.set_page_load_timeout(settings.NAVIGATION_TIMEOUT_MS / 1000)
+        driver.set_page_load_timeout(60)
         return SeleniumContext(driver)
 
     def _create_driver(self, headless: bool | None = None) -> webdriver.Edge:
