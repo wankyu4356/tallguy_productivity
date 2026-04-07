@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 import time
+import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -53,6 +54,12 @@ async def lifespan(app: FastAPI):
 
     await browser_manager.start()
     logger.info("Application started")
+
+    # Auto-open browser to localhost
+    url = f"http://localhost:{settings.PORT}"
+    logger.info(f"Opening browser: {url}")
+    webbrowser.open(url)
+
     yield
     await browser_manager.stop()
     logger.info("Application stopped")

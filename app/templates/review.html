@@ -13,9 +13,13 @@
         </div>
 
         {% if session.status.value == 'crawl_done' and not session.recommendations %}
-        <div id="recommend-action" style="margin-bottom: 16px;">
+        <div id="recommend-action" style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label for="max-count" style="font-size: 14px; font-weight: 500;">추천 기사 수:</label>
+            <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
+                   placeholder="예: 20" style="width: 80px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;">
+            <span style="font-size: 13px; color: var(--text-light);">/ {{ session.articles | length }}개</span>
             <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
-            <span id="recommend-status" style="margin-left: 12px; color: var(--text-light);"></span>
+            <span id="recommend-status" style="color: var(--text-light);"></span>
         </div>
         {% endif %}
 
@@ -38,22 +42,20 @@
                         <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
                                {% if rec and rec.recommended %}checked{% endif %}
                                onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">
-                                {{ a.title }}
+                        <div class="article-content-wrap">
+                            <div class="article-header">
+                                <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
                                 {% if rec and rec.recommended %}
                                 <span class="recommendation-badge">AI 추천</span>
                                 {% endif %}
+                                <span class="article-meta-inline">
+                                    <span class="category-tag">{{ a.subcategory or a.category }}</span>
+                                    <span class="article-date">{% if a.published_at %}{{ a.published_at.strftime('%m-%d %H:%M') if (a.published_at.hour or a.published_at.minute) else a.published_at.strftime('%m-%d') }}{% else %}시간 미상{% endif %}</span>
+                                </span>
                             </div>
                             {% if rec and rec.reason %}
-                            <div class="article-summary">{{ rec.reason }}</div>
+                            <div class="article-body">{{ rec.reason }}</div>
                             {% endif %}
-                            <div class="article-meta">
-                                <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
-                            </div>
                         </div>
                     </li>
                     {% endfor %}
@@ -75,17 +77,17 @@
                     <li class="article-item">
                         <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
                                onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">{{ a.title }}</div>
-                            {% if a.summary %}
-                            <div class="article-summary">{{ a.summary }}</div>
-                            {% endif %}
-                            <div class="article-meta">
-                                <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
+                        <div class="article-content-wrap">
+                            <div class="article-header">
+                                <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+                                <span class="article-meta-inline">
+                                    <span class="category-tag">{{ a.subcategory or a.category }}</span>
+                                    <span class="article-date">{% if a.published_at %}{{ a.published_at.strftime('%m-%d %H:%M') if (a.published_at.hour or a.published_at.minute) else a.published_at.strftime('%m-%d') }}{% else %}시간 미상{% endif %}</span>
+                                </span>
                             </div>
+                            {% if a.summary %}
+                            <div class="article-body">{{ a.summary }}</div>
+                            {% endif %}
                         </div>
                     </li>
                     {% endfor %}
@@ -113,9 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function requestRecommend() {
     const status = document.getElementById('recommend-status');
-    status.textContent = 'AI 분석 중...';
+    const maxCountInput = document.getElementById('max-count');
+    const maxCount = maxCountInput && maxCountInput.value ? parseInt(maxCountInput.value) : null;
+    status.textContent = maxCount ? `AI 분석 중... (약 ${maxCount}개 추천 예정)` : 'AI 분석 중...';
     try {
-        await fetch(`/api/recommend/${SESSION_ID}`, { method: 'POST' });
+        const body = {};
+        if (maxCount) body.max_count = maxCount;
+        await fetch(`/api/recommend/${SESSION_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
         // Poll for results
         const interval = setInterval(async () => {
             const res = await fetch(`/api/recommend/${SESSION_ID}`);

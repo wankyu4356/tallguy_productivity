@@ -34,5 +34,9 @@ class Settings(BaseSettings):
             errors.append("ANTHROPIC_API_KEY is not set")
         return errors
 
+    @property
+    def has_thebell_credentials(self) -> bool:
+        return bool(self.THEBELL_ID and self.THEBELL_PW)
+
 
 settings = Settings()
