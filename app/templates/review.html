@@ -7,92 +7,62 @@
     <p>총 {{ session.articles | length }}개 기사 수집됨</p>
 
     <div class="card">
-        <div class="tabs">
-            <div class="tab active" data-tab="recommend" onclick="switchTab('recommend')">LLM 추천</div>
-            <div class="tab" data-tab="manual" onclick="switchTab('manual')">전체 목록 (수동)</div>
-        </div>
-
-        {% if session.status.value == 'crawl_done' and not session.recommendations %}
-        <div id="recommend-action" style="margin-bottom: 16px;">
+        {% if not session.recommendations %}
+        <div id="recommend-action" style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label for="max-count" style="font-size: 14px; font-weight: 500;">추천 기사 수:</label>
+            <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
+                   placeholder="예: 20" style="width: 80px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;">
+            <span style="font-size: 13px; color: var(--text-light);">/ {{ session.articles | length }}개</span>
             <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
-            <span id="recommend-status" style="margin-left: 12px; color: var(--text-light);"></span>
+            <span id="recommend-status" style="color: var(--text-light);"></span>
+        </div>
+        {% else %}
+        <div style="margin-bottom: 16px; padding: 10px 16px; background: var(--bg-light, #f0f7ff); border-radius: var(--radius); font-size: 14px;">
+            AI 추천 완료 — <span class="recommendation-badge">AI 추천</span> 표시된 기사가 자동 선택되었습니다. 필요시 수동으로 조정하세요.
         </div>
         {% endif %}
 
         <div class="select-actions">
             <button class="btn btn-sm" onclick="selectAll(true)">전체 선택</button>
             <button class="btn btn-sm" onclick="selectAll(false)">전체 해제</button>
+            {% if session.recommendations %}
+            <button class="btn btn-sm" onclick="selectRecommended()">추천만 선택</button>
+            {% endif %}
             <span id="selection-count" style="margin-left: 12px; font-weight: 500;">0 / {{ session.articles | length }} 선택됨</span>
         </div>
 
-        <!-- LLM Recommend Tab -->
-        <div id="tab-recommend" class="tab-content">
-            {% if session.recommendations %}
-            {% for cat_name, cat_articles in categories.items() %}
-            <div class="category-group">
-                <h3>{{ cat_name }}</h3>
-                <ul class="article-list">
-                    {% for a in cat_articles %}
-                    {% set rec = rec_map.get(a.id) %}
-                    <li class="article-item">
-                        <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
-                               {% if rec and rec.recommended %}checked{% endif %}
-                               onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">
-                                {{ a.title }}
-                                {% if rec and rec.recommended %}
-                                <span class="recommendation-badge">AI 추천</span>
-                                {% endif %}
-                            </div>
-                            {% if rec and rec.reason %}
-                            <div class="article-summary">{{ rec.reason }}</div>
+        {% for cat_name, cat_articles in categories.items() %}
+        <div class="category-group">
+            <h3>{{ cat_name }}</h3>
+            <ul class="article-list">
+                {% for a in cat_articles %}
+                {% set rec = rec_map.get(a.id) %}
+                <li class="article-item">
+                    <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
+                           {% if rec and rec.recommended %}checked{% endif %}
+                           onchange="updateSelectionCount()">
+                    <div class="article-content-wrap">
+                        <div class="article-header">
+                            <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+                            {% if rec and rec.recommended %}
+                            <span class="recommendation-badge">AI 추천</span>
                             {% endif %}
-                            <div class="article-meta">
+                            <span class="article-meta-inline">
                                 <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
-                            </div>
+                                <span class="article-date">{% if a.published_at %}{{ a.published_at.strftime('%m-%d %H:%M') if (a.published_at.hour or a.published_at.minute) else a.published_at.strftime('%m-%d') }}{% else %}시간 미상{% endif %}</span>
+                            </span>
                         </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
-            {% else %}
-            <p style="color: var(--text-light);">AI 추천을 요청하거나, '전체 목록' 탭에서 수동으로 선택하세요.</p>
-            {% endif %}
+                        {% if rec and rec.reason %}
+                        <div class="article-body">{{ rec.reason }}</div>
+                        {% elif a.summary %}
+                        <div class="article-body">{{ a.summary }}</div>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
         </div>
-
-        <!-- Manual Tab -->
-        <div id="tab-manual" class="tab-content" style="display: none;">
-            {% for cat_name, cat_articles in categories.items() %}
-            <div class="category-group">
-                <h3>{{ cat_name }}</h3>
-                <ul class="article-list">
-                    {% for a in cat_articles %}
-                    <li class="article-item">
-                        <input type="checkbox" class="article-checkbox" value="{{ a.id }}"
-                               onchange="updateSelectionCount()">
-                        <div>
-                            <div class="article-title">{{ a.title }}</div>
-                            {% if a.summary %}
-                            <div class="article-summary">{{ a.summary }}</div>
-                            {% endif %}
-                            <div class="article-meta">
-                                <span class="category-tag">{{ a.subcategory or a.category }}</span>
-                                {% if a.published_at %}
-                                <span>{{ a.published_at.strftime('%m-%d %H:%M') }}</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
-        </div>
+        {% endfor %}
     </div>
 
     <div class="card" style="text-align: center;">
@@ -111,11 +81,28 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSelectionCount();
 });
 
+function selectRecommended() {
+    document.querySelectorAll('.article-checkbox').forEach(cb => {
+        const item = cb.closest('.article-item');
+        const badge = item ? item.querySelector('.recommendation-badge') : null;
+        cb.checked = !!badge;
+    });
+    updateSelectionCount();
+}
+
 async function requestRecommend() {
     const status = document.getElementById('recommend-status');
-    status.textContent = 'AI 분석 중...';
+    const maxCountInput = document.getElementById('max-count');
+    const maxCount = maxCountInput && maxCountInput.value ? parseInt(maxCountInput.value) : null;
+    status.textContent = maxCount ? `AI 분석 중... (약 ${maxCount}개 추천 예정)` : 'AI 분석 중...';
     try {
-        await fetch(`/api/recommend/${SESSION_ID}`, { method: 'POST' });
+        const body = {};
+        if (maxCount) body.max_count = maxCount;
+        await fetch(`/api/recommend/${SESSION_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
         // Poll for results
         const interval = setInterval(async () => {
             const res = await fetch(`/api/recommend/${SESSION_ID}`);
@@ -125,7 +112,7 @@ async function requestRecommend() {
                 window.location.reload();
             } else if (data.status === 'error') {
                 clearInterval(interval);
-                status.textContent = '오류 발생. 수동 선택으로 진행하세요.';
+                status.textContent = '오류 발생. 수동으로 선택하세요.';
             } else {
                 status.textContent = 'AI 분석 중...';
             }
@@ -138,10 +125,8 @@ async function requestRecommend() {
 async function confirmSelection() {
     const checked = document.querySelectorAll('.article-checkbox:checked');
     const ids = Array.from(checked).map(cb => cb.value);
-    // Deduplicate (article may appear in both tabs)
-    const uniqueIds = [...new Set(ids)];
 
-    if (uniqueIds.length === 0) {
+    if (ids.length === 0) {
         alert('최소 1개 이상의 기사를 선택해주세요.');
         return;
     }
@@ -150,7 +135,7 @@ async function confirmSelection() {
         const res = await fetch(`/api/select/${SESSION_ID}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ article_ids: uniqueIds }),
+            body: JSON.stringify({ article_ids: ids }),
         });
         const data = await res.json();
         if (data.status === 'selected') {

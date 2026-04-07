@@ -64,6 +64,8 @@ class SessionStatus(str, Enum):
     RECOMMEND_DONE = "recommend_done"
     SELECTED = "selected"
     GENERATING = "generating"
+    REVIEW_READY = "review_ready"
+    FINALIZING = "finalizing"
     DONE = "done"
     ERROR = "error"
 

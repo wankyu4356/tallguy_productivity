@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% block title %}Index 검수 - 더벨 News Clipper{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container ri-container">
+    <div class="ri-header">
+        <div>
+            <h1>Index 검수</h1>
+            <p>기사 블록을 드래그하여 순서 변경 또는 다른 섹션으로 이동하세요.</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="btn-reclassify" onclick="handleReclassify()">AI 분류 재시도</button>
+            <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
+        </div>
+    </div>
+
+    <nav class="ri-nav" id="section-nav"></nav>
+
+    <div id="classification-tree"></div>
+
+    <div style="text-align: center; margin-top: 16px;">
+        <button class="btn btn-primary" id="btn-confirm-bottom" style="padding: 10px 32px;">
+            확정 및 PDF/DOCX 생성
+        </button>
+    </div>
+
+    <div id="finalize-status" style="display: none; margin-top: 20px;">
+        <div class="card">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="spinner"></div>
+                <span id="finalize-msg">PDF/DOCX 생성 중...</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = "{{ session.session_id }}";
+let treeData = null;
+const allSortables = [];
+
+async function loadClassification() {
+    const res = await fetch(`/api/classification/${SESSION_ID}`);
+    const data = await res.json();
+    treeData = data.tree;
+    renderTree(treeData);
+}
+
+function renderTree(tree) {
+    const container = document.getElementById('classification-tree');
+    const nav = document.getElementById('section-nav');
+    container.innerHTML = '';
+    nav.innerHTML = '';
+
+    tree.forEach((cat, catIdx) => {
+        const catId = `cat-${catIdx}`;
+        const catCard = document.createElement('div');
+        catCard.className = `ri-category ri-theme-${catIdx % 8}`;
+        catCard.id = catId;
+        catCard.dataset.catIdx = catIdx;
+
+        const catHeader = document.createElement('h2');
+        catHeader.textContent = `${catIdx + 1}. ${cat.name}`;
+        catCard.appendChild(catHeader);
+
+        // Count articles in this category
+        let catArticleCount = (cat.articles || []).length;
+
+        // Direct articles under category (always create list for drop target)
+        if (!cat.subcategories || cat.subcategories.length === 0) {
+            const list = createSortableList(cat.articles || []);
+            catCard.appendChild(list);
+        }
+
+        if (cat.subcategories) {
+            cat.subcategories.forEach((sub, subIdx) => {
+                const subSection = document.createElement('div');
+                subSection.className = 'ri-subcategory';
+
+                const subHeader = document.createElement('h3');
+                subHeader.textContent = `${String.fromCharCode(65 + subIdx)}. ${sub.name}`;
+                subSection.appendChild(subHeader);
+
+                if (sub.sub_items && sub.sub_items.length > 0) {
+                    sub.sub_items.forEach(si => {
+                        const siSection = document.createElement('div');
+                        siSection.className = 'ri-subitem';
+
+                        const siHeader = document.createElement('div');
+                        siHeader.className = 'ri-subitem-header';
+                        siHeader.textContent = `- ${si.name}`;
+                        siSection.appendChild(siHeader);
+
+                        catArticleCount += (si.articles || []).length;
+                        const list = createSortableList(si.articles || []);
+                        siSection.appendChild(list);
+
+                        subSection.appendChild(siSection);
+                    });
+                }
+
+                // Direct articles under subcategory (always create list for drop target)
+                catArticleCount += (sub.articles || []).length;
+                const subList = createSortableList(sub.articles || []);
+                subSection.appendChild(subList);
+
+                catCard.appendChild(subSection);
+            });
+        }
+
+        container.appendChild(catCard);
+
+        // Nav button
+        const navBtn = document.createElement('a');
+        navBtn.className = `ri-nav-btn ri-theme-${catIdx % 8}`;
+        navBtn.href = `#${catId}`;
+        navBtn.innerHTML = `${cat.name}<span class="ri-nav-count">${catArticleCount}</span>`;
+        navBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById(catId).scrollIntoView({ behavior: 'smooth' });
+        });
+        nav.appendChild(navBtn);
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function createSortableList(articles) {
+    const list = document.createElement('div');
+    list.className = 'ri-article-list';
+
+    articles.forEach((art, idx) => {
+        list.appendChild(createArticleItem(art, idx));
+    });
+
+    const sortable = new Sortable(list, {
+        group: 'articles',
+        handle: '.ri-drag-handle',
+        animation: 150,
+        ghostClass: 'ri-ghost',
+        chosenClass: 'ri-chosen',
+        dragClass: 'ri-drag',
+        onStart: function() {
+            document.querySelectorAll('.ri-article-list').forEach(l => l.classList.add('ri-drop-active'));
+        },
+        onEnd: function(evt) {
+            document.querySelectorAll('.ri-article-list').forEach(l => l.classList.remove('ri-drop-active'));
+            if (evt.from) renumberList(evt.from);
+            if (evt.to && evt.to !== evt.from) renumberList(evt.to);
+            updateNavCounts();
+        }
+    });
+    allSortables.push(sortable);
+
+    return list;
+}
+
+function createArticleItem(art, idx) {
+    const item = document.createElement('div');
+    item.className = 'ri-article-item';
+    item.dataset.id = art.id;
+
+    const summary = art.summary ? `<div class="ri-article-summary">${escapeHtml(art.summary)}</div>` : '';
+    const catTag = art.category ? `<span class="ri-article-cat-tag">${escapeHtml(art.category)}</span>` : '';
+
+    item.innerHTML = `
+        <div class="ri-drag-handle" title="드래그하여 이동">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                <path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm0 6a2 2 0 10.001 4.001A2 2 0 007 8zm0 6a2 2 0 10.001 4.001A2 2 0 007 14zm6-8a2 2 0 10-.001-4.001A2 2 0 0013 6zm0 2a2 2 0 10.001 4.001A2 2 0 0013 8zm0 6a2 2 0 10.001 4.001A2 2 0 0013 14z"/>
+            </svg>
+        </div>
+        <div class="ri-article-body">
+            <div class="ri-article-num">${idx + 1}</div>
+            <div class="ri-article-info">
+                <div class="ri-article-title">
+                    <a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>
+                </div>
+                ${summary}
+            </div>
+            ${catTag}
+            <button class="ri-delete-btn" title="기사 제거" onclick="removeArticle(this)">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>
+                </svg>
+            </button>
+        </div>
+    `;
+    return item;
+}
+
+function removeArticle(btn) {
+    const item = btn.closest('.ri-article-item');
+    const list = item.closest('.ri-article-list');
+    const title = item.querySelector('.ri-article-title a')?.textContent || '';
+    if (!confirm(`"${title}" 기사를 제거하시겠습니까?`)) return;
+    item.remove();
+    if (list) renumberList(list);
+    updateNavCounts();
+}
+
+function updateNavCounts() {
+    const catCards = document.querySelectorAll('.ri-category');
+    const navBtns = document.querySelectorAll('.ri-nav-btn');
+    catCards.forEach((card, idx) => {
+        const count = card.querySelectorAll('.ri-article-item').length;
+        const countEl = navBtns[idx]?.querySelector('.ri-nav-count');
+        if (countEl) countEl.textContent = count;
+    });
+}
+
+function renumberList(list) {
+    list.querySelectorAll('.ri-article-item').forEach((item, idx) => {
+        const numEl = item.querySelector('.ri-article-num');
+        if (numEl) numEl.textContent = idx + 1;
+    });
+}
+
+function collectTree() {
+    const container = document.getElementById('classification-tree');
+    const catCards = container.querySelectorAll('.ri-category');
+
+    return treeData.map((cat, catIdx) => {
+        const catCard = catCards[catIdx];
+        const result = { name: cat.name, articles: [], subcategories: [] };
+
+        const directList = catCard.querySelector(':scope > .ri-article-list');
+        if (directList) {
+            result.articles = collectArticlesFromList(directList);
+        }
+
+        const subSections = catCard.querySelectorAll(':scope > .ri-subcategory');
+        if (cat.subcategories) {
+            cat.subcategories.forEach((sub, subIdx) => {
+                const subSection = subSections[subIdx];
+                const subResult = { name: sub.name, articles: [], sub_items: [] };
+
+                const subList = subSection ? subSection.querySelector(':scope > .ri-article-list') : null;
+                if (subList) {
+                    subResult.articles = collectArticlesFromList(subList);
+                }
+
+                const siSections = subSection ? subSection.querySelectorAll(':scope > .ri-subitem') : [];
+                if (sub.sub_items) {
+                    sub.sub_items.forEach((si, siIdx) => {
+                        const siSection = siSections[siIdx];
+                        const siResult = { name: si.name, articles: [] };
+                        const siList = siSection ? siSection.querySelector('.ri-article-list') : null;
+                        if (siList) {
+                            siResult.articles = collectArticlesFromList(siList);
+                        }
+                        subResult.sub_items.push(siResult);
+                    });
+                }
+
+                result.subcategories.push(subResult);
+            });
+        }
+
+        return result;
+    });
+}
+
+function collectArticlesFromList(list) {
+    const articles = [];
+    list.querySelectorAll('.ri-article-item').forEach(item => {
+        const id = item.dataset.id;
+        const art = findArticle(id);
+        if (art) articles.push(art);
+    });
+    return articles;
+}
+
+function findArticle(id) {
+    for (const cat of treeData) {
+        for (const a of (cat.articles || [])) { if (a.id === id) return a; }
+        for (const sub of (cat.subcategories || [])) {
+            for (const a of (sub.articles || [])) { if (a.id === id) return a; }
+            for (const si of (sub.sub_items || [])) {
+                for (const a of (si.articles || [])) { if (a.id === id) return a; }
+            }
+        }
+    }
+    return null;
+}
+
+async function handleReclassify() {
+    if (!confirm('AI 분류를 재시도하시겠습니까?\n현재 수동 편집 내용은 초기화됩니다.')) return;
+    const btn = document.getElementById('btn-reclassify');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '분류 중...';
+    try {
+        const res = await fetch(`/api/reclassify/${SESSION_ID}`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || '분류 재시도 실패');
+        }
+        await loadClassification();
+    } catch (e) {
+        alert('분류 재시도 실패: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
+}
+
+async function handleConfirm() {
+    const btns = document.querySelectorAll('#btn-confirm, #btn-confirm-bottom');
+    btns.forEach(b => { b.disabled = true; b.textContent = '처리 중...'; });
+
+    const tree = collectTree();
+
+    const res = await fetch(`/api/confirm-index/${SESSION_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tree }),
+    });
+
+    if (!res.ok) {
+        const err = await res.json();
+        alert('오류: ' + (err.detail || '알 수 없는 오류'));
+        btns.forEach(b => { b.disabled = false; b.textContent = '확정 및 PDF/DOCX 생성'; });
+        return;
+    }
+
+    document.getElementById('finalize-status').style.display = 'block';
+    btns.forEach(b => b.style.display = 'none');
+
+    const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
+    const msgEl = document.getElementById('finalize-msg');
+
+    evtSource.onmessage = function(event) {
+        msgEl.textContent = event.data;
+    };
+
+    evtSource.addEventListener('done', function(event) {
+        evtSource.close();
+        if (event.data === 'done') {
+            window.location.href = `/result/${SESSION_ID}`;
+        } else {
+            msgEl.textContent = '오류가 발생했습니다.';
+            msgEl.style.color = 'var(--error)';
+        }
+    });
+
+    evtSource.onerror = function() { evtSource.close(); };
+}
+
+document.getElementById('btn-confirm').addEventListener('click', handleConfirm);
+document.getElementById('btn-confirm-bottom').addEventListener('click', handleConfirm);
+
+loadClassification();
+</script>
+{% endblock %}

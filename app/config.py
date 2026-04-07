@@ -30,13 +30,13 @@ class Settings(BaseSettings):
 
     def validate_required(self) -> list[str]:
         errors = []
-        if not self.THEBELL_ID:
-            errors.append("THEBELL_ID is not set")
-        if not self.THEBELL_PW:
-            errors.append("THEBELL_PW is not set")
         if not self.ANTHROPIC_API_KEY:
             errors.append("ANTHROPIC_API_KEY is not set")
         return errors
+
+    @property
+    def has_thebell_credentials(self) -> bool:
+        return bool(self.THEBELL_ID and self.THEBELL_PW)
 
 
 settings = Settings()

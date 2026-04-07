@@ -59,8 +59,15 @@ def generate_docx(
 
     doc.add_paragraph()  # Blank line
 
-    # Helper to add articles under a section
-    def add_articles(article_ids: list[str], indent_level: int = 2):
+    # Fixed indent levels (cm)
+    _INDENT_CAT = Cm(0)       # 1. Deal
+    _INDENT_SUB = Cm(0.8)     # A. 경영권 인수 및 매각
+    _INDENT_ITEM = Cm(1.6)    # - 환경/폐기물
+    _INDENT_ART_L1 = Cm(0.8)  # articles under category (Fundraising)
+    _INDENT_ART_L2 = Cm(1.6)  # articles under subcategory
+    _INDENT_ART_L3 = Cm(2.4)  # articles under sub-item
+
+    def add_articles(article_ids: list[str], indent: Cm):
         if not article_ids:
             return
         count = 0
@@ -68,51 +75,56 @@ def generate_docx(
             a = articles_map.get(aid)
             if a:
                 count += 1
+                title_text = a.info.title.strip()
                 p = doc.add_paragraph()
-                p.paragraph_format.left_indent = Cm(indent_level * 1.0)
+                p.paragraph_format.left_indent = indent
+                p.paragraph_format.first_line_indent = Cm(0)
                 p.paragraph_format.space_after = Pt(2)
-                run = p.add_run(f"({count})\t{a.info.title}")
+                p.paragraph_format.space_before = Pt(0)
+                run = p.add_run(f"({count})  {title_text}")
                 run.font.size = Pt(10)
 
-    for cat in classification.categories:
-        # Main category number
-        cat_num = classification.categories.index(cat) + 1
-
+    for cat_num, cat in enumerate(classification.categories, 1):
         p = doc.add_paragraph()
+        p.paragraph_format.left_indent = _INDENT_CAT
+        p.paragraph_format.first_line_indent = Cm(0)
         p.paragraph_format.space_before = Pt(12)
-        run = p.add_run(f"{cat_num}.\t{cat.name}")
+        p.paragraph_format.space_after = Pt(2)
+        run = p.add_run(f"{cat_num}. {cat.name}")
         run.bold = True
         run.font.size = Pt(12)
 
-        # Direct articles under category (e.g., Fundraising)
-        if cat.articles:
-            add_articles(cat.articles, indent_level=1)
+        if cat.subcategories:
+            # Subcategories
+            for sub_idx, sub in enumerate(cat.subcategories):
+                sub_letter = chr(65 + sub_idx)  # A, B, C...
 
-        # Subcategories
-        for sub_idx, sub in enumerate(cat.subcategories):
-            sub_letter = chr(65 + sub_idx)  # A, B, C...
-
-            p = doc.add_paragraph()
-            p.paragraph_format.left_indent = Cm(1.0)
-            p.paragraph_format.space_before = Pt(6)
-            run = p.add_run(f"{sub_letter}.\t{sub.name}")
-            run.bold = True
-            run.font.size = Pt(11)
-
-            # Direct articles under subcategory
-            if sub.articles:
-                add_articles(sub.articles, indent_level=2)
-
-            # Sub-items (e.g., 환경/폐기물, 건설/부동산, etc.)
-            for sub_item in sub.sub_items:
                 p = doc.add_paragraph()
-                p.paragraph_format.left_indent = Cm(2.0)
-                p.paragraph_format.space_before = Pt(4)
-                run = p.add_run(f"-\t{sub_item.name}")
-                run.font.size = Pt(10)
+                p.paragraph_format.left_indent = _INDENT_SUB
+                p.paragraph_format.first_line_indent = Cm(0)
+                p.paragraph_format.space_before = Pt(6)
+                p.paragraph_format.space_after = Pt(2)
+                run = p.add_run(f"{sub_letter}. {sub.name}")
+                run.bold = True
+                run.font.size = Pt(11)
 
-                if sub_item.articles:
-                    add_articles(sub_item.articles, indent_level=3)
+                if sub.sub_items:
+                    # Sub-items (e.g., 환경/폐기물, 건설/부동산, etc.)
+                    for sub_item in sub.sub_items:
+                        p = doc.add_paragraph()
+                        p.paragraph_format.left_indent = _INDENT_ITEM
+                        p.paragraph_format.first_line_indent = Cm(0)
+                        p.paragraph_format.space_before = Pt(4)
+                        p.paragraph_format.space_after = Pt(1)
+                        run = p.add_run(f"- {sub_item.name}")
+                        run.font.size = Pt(10)
+
+                        if sub_item.articles:
+                            add_articles(sub_item.articles, indent=_INDENT_ART_L3)
+                if sub.articles:
+                    add_articles(sub.articles, indent=_INDENT_ART_L2)
+        if cat.articles:
+            add_articles(cat.articles, indent=_INDENT_ART_L1)
 
     doc.save(str(output_path))
     logger.info(f"DOCX generated: {output_path}")

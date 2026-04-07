@@ -128,19 +128,23 @@ async def get_crawl_status(session_id: str):
     }
 
 
+class RecommendRequest(BaseModel):
+    max_count: int | None = None
+
+
 @router.post("/api/recommend/{session_id}")
-async def start_recommend(session_id: str, background_tasks: BackgroundTasks):
+async def start_recommend(session_id: str, body: RecommendRequest, background_tasks: BackgroundTasks):
     """Start LLM recommendation on crawled articles."""
     sessions = _get_sessions()
     session = sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
 
-    background_tasks.add_task(_recommend_task, session_id)
+    background_tasks.add_task(_recommend_task, session_id, body.max_count)
     return {"status": "recommending"}
 
 
-async def _recommend_task(session_id: str):
+async def _recommend_task(session_id: str, max_count: int | None = None):
     """Background task for LLM recommendation."""
     from app.services.llm_classifier import recommend_articles
 
@@ -149,8 +153,9 @@ async def _recommend_task(session_id: str):
     session.status = SessionStatus.RECOMMENDING
 
     try:
-        session.progress_messages.append("LLM 기사 추천 분석 중...")
-        recommendations = await recommend_articles(session.articles)
+        count_msg = f" (목표: 약 {max_count}개)" if max_count else ""
+        session.progress_messages.append(f"LLM 기사 추천 분석 중...{count_msg}")
+        recommendations = await recommend_articles(session.articles, max_count=max_count)
         session.recommendations = recommendations
         session.status = SessionStatus.RECOMMEND_DONE
         recommended_count = sum(1 for r in recommendations if r.recommended)
@@ -203,12 +208,9 @@ async def start_generate(session_id: str, background_tasks: BackgroundTasks):
 
 
 async def _generate_task(session_id: str):
-    """Background task for full generation pipeline."""
+    """Background task: fetch articles + AI classification, then pause for review."""
     from app.services.article_fetcher import fetch_articles
     from app.services.llm_classifier import classify_articles
-    from app.services.pdf_merger import merge_pdfs
-    from app.services.docx_generator import generate_docx
-    from app.services.packager import create_zip
 
     sessions = _get_sessions()
     session = sessions[session_id]
@@ -238,7 +240,6 @@ async def _generate_task(session_id: str):
         on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
         ctx = await bm.new_context(headless=False)
 
-        # Manual login for article fetching
         from app.services.crawler import login
         login_ok = await login(ctx)
         if not login_ok:
@@ -250,18 +251,56 @@ async def _generate_task(session_id: str):
         articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
         session.articles_with_content = articles_with_content
 
-        await ctx.close()
+        # Close browser — safe to fail if already closed by user
+        try:
+            await ctx.close()
+        except Exception:
+            logger.debug("Browser context already closed")
         ctx = None
 
         # Step 2: Classify with LLM
         on_progress("Step 2/5: AI 분류 중...")
         classification = await classify_articles(articles_with_content)
         session.classification = classification
-        on_progress("분류 완료!")
+        on_progress("분류 완료! 검수 페이지로 이동합니다...")
+
+        # Pause here — wait for user review
+        session.status = SessionStatus.REVIEW_READY
+
+    except Exception as e:
+        logger.error(f"Generate task error: {e}", exc_info=True)
+        session.status = SessionStatus.ERROR
+        session.error = str(e)
+    finally:
+        if ctx:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+
+
+async def _finalize_task(session_id: str):
+    """Background task: merge PDFs, generate DOCX, package ZIP (after review)."""
+    from app.services.pdf_merger import merge_pdfs
+    from app.services.docx_generator import generate_docx
+    from app.services.packager import create_zip
+
+    sessions = _get_sessions()
+    session = sessions[session_id]
+    session.status = SessionStatus.FINALIZING
+
+    try:
+        session_dir = settings.OUTPUT_DIR / session_id
+        classification = session.classification
+        articles_with_content = session.articles_with_content
+
+        def on_progress(msg: str):
+            session.progress_messages.append(msg)
+
+        date_str = session.date_to.strftime("%Y.%m.%d") if session.date_to else datetime.now().strftime("%Y.%m.%d")
 
         # Step 3: Merge PDFs
         on_progress("Step 3/5: PDF 합본 중...")
-        date_str = session.date_to.strftime("%Y.%m.%d") if session.date_to else datetime.now().strftime("%Y.%m.%d")
         merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         merge_pdfs(classification, articles_with_content, merged_pdf_path, on_progress)
 
@@ -281,12 +320,159 @@ async def _generate_task(session_id: str):
         on_progress("모든 작업 완료!")
 
     except Exception as e:
-        logger.error(f"Generate task error: {e}", exc_info=True)
+        logger.error(f"Finalize task error: {e}", exc_info=True)
         session.status = SessionStatus.ERROR
         session.error = str(e)
-    finally:
-        if ctx:
-            await ctx.close()
+
+
+@router.get("/api/classification/{session_id}")
+async def get_classification(session_id: str):
+    """Get current classification tree with article summaries for review."""
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if not session.classification:
+        raise HTTPException(400, "Classification not ready")
+
+    articles_map = {a.info.id: a for a in session.articles_with_content}
+
+    # Debug: log classification state
+    total_classified = 0
+    for cat in session.classification.categories:
+        total_classified += len(cat.articles)
+        for sub in cat.subcategories:
+            total_classified += len(sub.articles)
+            for si in sub.sub_items:
+                total_classified += len(si.articles)
+    logger.info(
+        f"[Classification API] articles_with_content={len(session.articles_with_content)}, "
+        f"articles_map_keys={list(articles_map.keys())[:5]}, "
+        f"total_classified_ids={total_classified}, "
+        f"article_order={len(session.classification.article_order)}"
+    )
+
+    def article_detail(aid: str):
+        a = articles_map.get(aid)
+        if not a:
+            logger.warning(f"[Classification API] article_detail: ID '{aid}' not found in articles_map")
+            return None
+        # Build a short summary: first 150 chars of content
+        summary = a.info.summary or ""
+        if not summary and a.content:
+            summary = a.content[:200].replace("\n", " ").strip()
+            if len(a.content) > 200:
+                summary += "..."
+        return {
+            "id": a.info.id,
+            "title": a.info.title,
+            "summary": summary,
+            "url": a.info.url,
+            "category": a.info.category,
+        }
+
+    tree = []
+    for cat in session.classification.categories:
+        cat_data = {
+            "name": cat.name,
+            "articles": [article_detail(aid) for aid in cat.articles if article_detail(aid)],
+            "subcategories": [],
+        }
+        for sub in cat.subcategories:
+            sub_data = {
+                "name": sub.name,
+                "articles": [article_detail(aid) for aid in sub.articles if article_detail(aid)],
+                "sub_items": [],
+            }
+            for si in sub.sub_items:
+                si_data = {
+                    "name": si.name,
+                    "articles": [article_detail(aid) for aid in si.articles if article_detail(aid)],
+                }
+                sub_data["sub_items"].append(si_data)
+            cat_data["subcategories"].append(sub_data)
+        tree.append(cat_data)
+
+    return {"status": session.status.value, "tree": tree}
+
+
+@router.post("/api/reclassify/{session_id}")
+async def reclassify(session_id: str):
+    """Re-run AI classification with stricter prompts."""
+    from app.services.llm_classifier import classify_articles
+
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if not session.articles_with_content:
+        raise HTTPException(400, "No articles to classify")
+
+    logger.info(f"[Reclassify] Re-running classification in strict mode for {session_id}")
+    classification = await classify_articles(session.articles_with_content, strict=True)
+    session.classification = classification
+    logger.info(f"[Reclassify] Strict classification complete for {session_id}")
+
+    return {"status": "ok"}
+
+
+class ConfirmIndexRequest(BaseModel):
+    tree: list[dict]
+
+
+@router.post("/api/confirm-index/{session_id}")
+async def confirm_index(session_id: str, body: ConfirmIndexRequest, background_tasks: BackgroundTasks):
+    """Accept reviewed classification and proceed to finalize."""
+    from app.models.schemas import (
+        ClassifiedOutput, ClassificationCategory,
+        ClassificationSubcategory, ClassificationSubItem,
+    )
+
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if session.status != SessionStatus.REVIEW_READY:
+        raise HTTPException(400, f"Cannot confirm in status: {session.status.value}")
+
+    # Rebuild ClassifiedOutput from reviewed tree
+    categories = []
+    article_order = []
+    for cat_data in body.tree:
+        cat_articles = [a["id"] for a in cat_data.get("articles", [])]
+        article_order.extend(cat_articles)
+
+        subcategories = []
+        for sub_data in cat_data.get("subcategories", []):
+            sub_articles = [a["id"] for a in sub_data.get("articles", [])]
+            article_order.extend(sub_articles)
+
+            sub_items = []
+            for si_data in sub_data.get("sub_items", []):
+                si_articles = [a["id"] for a in si_data.get("articles", [])]
+                article_order.extend(si_articles)
+                sub_items.append(ClassificationSubItem(
+                    name=si_data["name"],
+                    articles=si_articles,
+                ))
+            subcategories.append(ClassificationSubcategory(
+                name=sub_data["name"],
+                sub_items=sub_items,
+                articles=sub_articles,
+            ))
+        categories.append(ClassificationCategory(
+            name=cat_data["name"],
+            subcategories=subcategories,
+            articles=cat_articles,
+        ))
+
+    session.classification = ClassifiedOutput(
+        categories=categories,
+        article_order=article_order,
+    )
+
+    background_tasks.add_task(_finalize_task, session_id)
+    return {"status": "finalizing"}
 
 
 @router.get("/api/progress/{session_id}")
@@ -306,7 +492,8 @@ async def progress_stream(session_id: str):
                 last_idx = len(session.progress_messages)
 
             if session.status in (SessionStatus.DONE, SessionStatus.ERROR,
-                                  SessionStatus.CRAWL_DONE, SessionStatus.RECOMMEND_DONE):
+                                  SessionStatus.CRAWL_DONE, SessionStatus.RECOMMEND_DONE,
+                                  SessionStatus.REVIEW_READY):
                 yield f"event: done\ndata: {session.status.value}\n\n"
                 break
 
@@ -341,13 +528,25 @@ async def review_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # Group articles by category
+    # Group articles by crawler's original category, in SECTION_CODES order
+    from app.services.crawler import SECTION_CODES
+    _section_order = [label for label, _ in SECTION_CODES]
+
     categories = {}
     for a in session.articles:
         cat = a.subcategory or a.category
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(a)
+
+    # Sort categories by SECTION_CODES order; unknown categories go last
+    def _cat_sort_key(cat_name):
+        try:
+            return _section_order.index(cat_name)
+        except ValueError:
+            return len(_section_order)
+
+    categories = dict(sorted(categories.items(), key=lambda x: _cat_sort_key(x[0])))
 
     # Build recommendation map
     rec_map = {r.article_id: r for r in session.recommendations}
@@ -357,6 +556,19 @@ async def review_page(request: Request, session_id: str):
         "session": session,
         "categories": categories,
         "rec_map": rec_map,
+    })
+
+
+@router.get("/review-index/{session_id}", response_class=HTMLResponse)
+async def review_index_page(request: Request, session_id: str):
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    return templates.TemplateResponse("review_index.html", {
+        "request": request,
+        "session": session,
     })
 
 
