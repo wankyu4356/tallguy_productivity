@@ -60,12 +60,22 @@ _LOGIN_URLS = [
 
 def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
     """Open TheBell and wait for user to log in manually."""
+    # Set a long page load timeout for login (the page is heavy with JS/ads)
+    driver.set_page_load_timeout(120)
+
     # Try login URLs until one doesn't 404
     login_loaded = False
     for url in _LOGIN_URLS:
-        driver.get(url)
+        try:
+            driver.get(url)
+        except TimeoutException:
+            # Page didn't fully load but may still be usable
+            logger.warning(f"Login page load timeout (partial load OK): {url}")
         time.sleep(2)
-        page_text = driver.page_source[:2000].lower()
+        try:
+            page_text = driver.page_source[:2000].lower()
+        except Exception:
+            continue
         # Check if page is a 404 error page
         if "찾을 수 없습니다" in page_text or "찾을 수가 없습니다" in page_text:
             logger.debug(f"Login URL 404: {url}")
@@ -77,8 +87,19 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
     if not login_loaded:
         # Fallback: open the main page, user can find login themselves
         logger.warning("모든 로그인 URL이 404. 메인 페이지를 엽니다.")
-        driver.get(THEBELL_BASE)
+        try:
+            driver.get(THEBELL_BASE)
+        except TimeoutException:
+            logger.warning("Main page load timeout (partial load OK)")
         time.sleep(2)
+
+    # Record cookies present before login to distinguish pre-existing from new ones
+    pre_login_cookies = set()
+    try:
+        for c in driver.get_cookies():
+            pre_login_cookies.add(c["name"])
+    except Exception:
+        pass
 
     logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
 
@@ -87,13 +108,20 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
         try:
             current_url = driver.current_url
 
-            # Check for session cookies (most reliable indicator)
+            # Check for NEW cookies that indicate login (exclude pre-existing ASP session cookies)
             cookies = driver.get_cookies()
-            cookie_names = [c["name"] for c in cookies]
-            if any("sess" in c.lower() or "member" in c.lower() or "auth" in c.lower()
-                    for c in cookie_names):
-                logger.info(f"세션 쿠키로 로그인 감지! cookies: {cookie_names}")
-                return True
+            for c in cookies:
+                name = c["name"]
+                # Skip cookies that existed before login
+                if name in pre_login_cookies:
+                    continue
+                name_lower = name.lower()
+                # Skip generic ASP session cookies (set before login)
+                if name_lower.startswith("aspsessionid"):
+                    continue
+                if any(kw in name_lower for kw in ("member", "auth", "user", "login", "token")):
+                    logger.info(f"로그인 쿠키 감지! new cookie: {name}")
+                    return True
 
             # URL left the login page and is not a 404/error page
             is_login_page = any(
