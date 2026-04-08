@@ -11,14 +11,18 @@
             <h1>Index 검수</h1>
             <p>기사 블록을 드래그하여 순서 변경 또는 다른 섹션으로 이동하세요.</p>
         </div>
-        <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn" id="btn-back" onclick="goBackToReview()">기사 선택으로 돌아가기</button>
+            <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
+        </div>
     </div>
 
     <nav class="ri-nav" id="section-nav"></nav>
 
     <div id="classification-tree"></div>
 
-    <div style="text-align: center; margin-top: 16px;">
+    <div style="display: flex; justify-content: center; gap: 12px; margin-top: 16px;">
+        <button class="btn" onclick="goBackToReview()">기사 선택으로 돌아가기</button>
         <button class="btn btn-primary" id="btn-confirm-bottom" style="padding: 10px 32px;">
             확정 및 PDF/DOCX 생성
         </button>
@@ -329,6 +333,25 @@ async function handleConfirm() {
     });
 
     evtSource.onerror = function() { evtSource.close(); };
+}
+
+async function goBackToReview() {
+    if (!confirm('기사 선택 단계로 돌아가시겠습니까? 현재 분류 작업은 유지됩니다.')) return;
+    try {
+        const res = await fetch(`/api/rewind/${SESSION_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_status: 'crawl_done' }),
+        });
+        if (res.ok) {
+            window.location.href = `/review/${SESSION_ID}`;
+        } else {
+            const data = await res.json();
+            alert('오류: ' + (data.detail || '되돌리기 실패'));
+        }
+    } catch (e) {
+        alert('오류: ' + e.message);
+    }
 }
 
 document.getElementById('btn-confirm').addEventListener('click', handleConfirm);

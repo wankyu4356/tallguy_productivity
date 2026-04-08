@@ -68,44 +68,73 @@ async def start_crawl(body: CrawlRequest, background_tasks: BackgroundTasks):
 
 async def _crawl_task(session_id: str):
     """Background task for crawling."""
+    import time as _time
     from app.services.crawler import login, crawl_all_categories
 
     sessions = _get_sessions()
     session = sessions[session_id]
     session.status = SessionStatus.CRAWLING
+    task_stage = "[태스크:크롤링]"
+    t0 = _time.time()
 
     bm = _get_browser_manager()
     ctx = None
 
     try:
-        ctx = await bm.new_context(headless=False)
+        logger.info(f"{task_stage} 시작 | session={session_id[:8]} | date_range={session.date_from}~{session.date_to}")
 
-        # Manual login — opens visible browser for user to log in
+        # Step 1: Create browser context
+        logger.info(f"{task_stage} 브라우저 컨텍스트 생성 중...")
+        ctx = await bm.new_context(headless=False)
+        logger.info(f"{task_stage} 브라우저 컨텍스트 생성 완료 | elapsed={_time.time()-t0:.1f}s")
+
+        # Step 2: Login
         session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
+        t_login = _time.time()
         login_ok = await login(ctx)
+        login_elapsed = _time.time() - t_login
         if not login_ok:
+            error_msg = f"더벨 로그인 타임아웃 (5분). 브라우저에서 로그인하세요. (소요: {login_elapsed:.0f}초)"
+            logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
+            session.error = error_msg
+            session.progress_messages.append(f"⚠ {error_msg}")
             return
 
-        session.progress_messages.append("로그인 성공!")
+        session.progress_messages.append(f"로그인 성공! ({login_elapsed:.0f}초)")
+        logger.info(f"{task_stage} 로그인 성공 | elapsed={login_elapsed:.1f}s")
 
-        # Crawl
+        # Step 3: Crawl
         def on_progress(msg: str):
             session.progress_messages.append(msg)
 
+        t_crawl = _time.time()
         articles = await crawl_all_categories(
             ctx, session.date_from, session.date_to, on_progress
         )
+        crawl_elapsed = _time.time() - t_crawl
 
         session.articles = articles
         session.status = SessionStatus.CRAWL_DONE
-        session.progress_messages.append(f"크롤링 완료: {len(articles)}개 기사")
+        total_elapsed = _time.time() - t0
+        session.progress_messages.append(
+            f"크롤링 완료: {len(articles)}개 기사 (크롤링 {crawl_elapsed:.0f}초 / 전체 {total_elapsed:.0f}초)"
+        )
+        logger.info(
+            f"{task_stage} 완료 | articles={len(articles)} | "
+            f"crawl_time={crawl_elapsed:.1f}s | total_time={total_elapsed:.1f}s"
+        )
 
     except Exception as e:
-        logger.error(f"Crawl task error: {e}", exc_info=True)
+        total_elapsed = _time.time() - t0
+        error_detail = (
+            f"{task_stage} 치명적 오류 | session={session_id[:8]} | "
+            f"error={type(e).__name__}: {str(e)[:300]} | total_elapsed={total_elapsed:.1f}s"
+        )
+        logger.error(error_detail, exc_info=True)
         session.status = SessionStatus.ERROR
-        session.error = str(e)
+        session.error = f"크롤링 오류: {type(e).__name__}: {str(e)[:200]}"
+        session.progress_messages.append(f"⚠ {session.error}")
     finally:
         if ctx:
             await ctx.close()
@@ -146,26 +175,40 @@ async def start_recommend(session_id: str, body: RecommendRequest, background_ta
 
 async def _recommend_task(session_id: str, max_count: int | None = None):
     """Background task for LLM recommendation."""
+    import time as _time
     from app.services.llm_classifier import recommend_articles
 
     sessions = _get_sessions()
     session = sessions[session_id]
     session.status = SessionStatus.RECOMMENDING
+    task_stage = "[태스크:추천]"
+    t0 = _time.time()
 
     try:
         count_msg = f" (목표: 약 {max_count}개)" if max_count else ""
+        logger.info(f"{task_stage} 시작 | session={session_id[:8]} | articles={len(session.articles)}개{count_msg}")
         session.progress_messages.append(f"LLM 기사 추천 분석 중...{count_msg}")
         recommendations = await recommend_articles(session.articles, max_count=max_count)
         session.recommendations = recommendations
         session.status = SessionStatus.RECOMMEND_DONE
         recommended_count = sum(1 for r in recommendations if r.recommended)
+        elapsed = _time.time() - t0
         session.progress_messages.append(
-            f"추천 완료: {recommended_count}/{len(recommendations)}개 기사 추천됨"
+            f"추천 완료: {recommended_count}/{len(recommendations)}개 기사 추천됨 ({elapsed:.0f}초)"
+        )
+        logger.info(
+            f"{task_stage} 완료 | recommended={recommended_count}/{len(recommendations)} | elapsed={elapsed:.1f}s"
         )
     except Exception as e:
-        logger.error(f"Recommend task error: {e}", exc_info=True)
+        elapsed = _time.time() - t0
+        logger.error(
+            f"{task_stage} 오류 | session={session_id[:8]} | "
+            f"error={type(e).__name__}: {str(e)[:300]} | elapsed={elapsed:.1f}s",
+            exc_info=True,
+        )
         session.status = SessionStatus.ERROR
-        session.error = str(e)
+        session.error = f"추천 오류: {type(e).__name__}: {str(e)[:200]}"
+        session.progress_messages.append(f"⚠ {session.error}")
 
 
 @router.get("/api/recommend/{session_id}")
@@ -209,17 +252,22 @@ async def start_generate(session_id: str, background_tasks: BackgroundTasks):
 
 async def _generate_task(session_id: str):
     """Background task: fetch articles + AI classification, then pause for review."""
+    import time as _time
     from app.services.article_fetcher import fetch_articles
     from app.services.llm_classifier import classify_articles
 
     sessions = _get_sessions()
     session = sessions[session_id]
     session.status = SessionStatus.GENERATING
+    task_stage = "[태스크:생성]"
+    t0 = _time.time()
 
     bm = _get_browser_manager()
     ctx = None
 
     try:
+        logger.info(f"{task_stage} 시작 | session={session_id[:8]} | selected={len(session.selected_ids)}개")
+
         # Prepare output directory
         session_dir = settings.OUTPUT_DIR / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +279,7 @@ async def _generate_task(session_id: str):
         if not selected:
             session.status = SessionStatus.ERROR
             session.error = "선택된 기사가 없습니다."
+            logger.error(f"{task_stage} 선택된 기사 없음 | session={session_id[:8]}")
             return
 
         def on_progress(msg: str):
@@ -241,32 +290,57 @@ async def _generate_task(session_id: str):
         ctx = await bm.new_context(headless=False)
 
         from app.services.crawler import login
+        t_login = _time.time()
         login_ok = await login(ctx)
+        login_elapsed = _time.time() - t_login
         if not login_ok:
+            error_msg = f"더벨 로그인 타임아웃 (소요: {login_elapsed:.0f}초)"
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 타임아웃."
+            session.error = error_msg
+            logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
+            on_progress(f"⚠ {error_msg}")
             return
-        on_progress("로그인 성공! 기사 본문 수집 및 PDF 생성 중...")
+        on_progress(f"로그인 성공! ({login_elapsed:.0f}초) 기사 본문 수집 및 PDF 생성 중...")
+        logger.info(f"{task_stage} 로그인 성공 | elapsed={login_elapsed:.1f}s")
 
+        t_fetch = _time.time()
         articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
+        fetch_elapsed = _time.time() - t_fetch
         session.articles_with_content = articles_with_content
+        logger.info(
+            f"{task_stage} 기사 수집 완료 | articles={len(articles_with_content)} | elapsed={fetch_elapsed:.1f}s"
+        )
 
         await ctx.close()
         ctx = None
 
         # Step 2: Classify with LLM
         on_progress("Step 2/5: AI 분류 중...")
+        t_classify = _time.time()
         classification = await classify_articles(articles_with_content)
+        classify_elapsed = _time.time() - t_classify
         session.classification = classification
-        on_progress("분류 완료! 검수 페이지로 이동합니다...")
+        logger.info(
+            f"{task_stage} AI 분류 완료 | categories={len(classification.categories)} | elapsed={classify_elapsed:.1f}s"
+        )
+
+        total_elapsed = _time.time() - t0
+        on_progress(f"분류 완료! 검수 페이지로 이동합니다... (전체 {total_elapsed:.0f}초)")
+        logger.info(f"{task_stage} 완료 → 검수 대기 | total_elapsed={total_elapsed:.1f}s")
 
         # Pause here — wait for user review
         session.status = SessionStatus.REVIEW_READY
 
     except Exception as e:
-        logger.error(f"Generate task error: {e}", exc_info=True)
+        total_elapsed = _time.time() - t0
+        error_detail = (
+            f"{task_stage} 치명적 오류 | session={session_id[:8]} | "
+            f"error={type(e).__name__}: {str(e)[:300]} | total_elapsed={total_elapsed:.1f}s"
+        )
+        logger.error(error_detail, exc_info=True)
         session.status = SessionStatus.ERROR
-        session.error = str(e)
+        session.error = f"생성 오류: {type(e).__name__}: {str(e)[:200]}"
+        session.progress_messages.append(f"⚠ {session.error}")
     finally:
         if ctx:
             await ctx.close()
@@ -274,6 +348,7 @@ async def _generate_task(session_id: str):
 
 async def _finalize_task(session_id: str):
     """Background task: merge PDFs, generate DOCX, package ZIP (after review)."""
+    import time as _time
     from app.services.pdf_merger import merge_pdfs
     from app.services.docx_generator import generate_docx
     from app.services.packager import create_zip
@@ -281,8 +356,11 @@ async def _finalize_task(session_id: str):
     sessions = _get_sessions()
     session = sessions[session_id]
     session.status = SessionStatus.FINALIZING
+    task_stage = "[태스크:최종화]"
+    t0 = _time.time()
 
     try:
+        logger.info(f"{task_stage} 시작 | session={session_id[:8]} | articles={len(session.articles_with_content)}개")
         session_dir = settings.OUTPUT_DIR / session_id
         classification = session.classification
         articles_with_content = session.articles_with_content
@@ -294,28 +372,74 @@ async def _finalize_task(session_id: str):
 
         # Step 3: Merge PDFs
         on_progress("Step 3/5: PDF 합본 중...")
+        t_step = _time.time()
         merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         merge_pdfs(classification, articles_with_content, merged_pdf_path, on_progress)
+        logger.info(f"{task_stage} Step 3 PDF 합본 완료 | elapsed={_time.time()-t_step:.1f}s")
 
         # Step 4: Generate DOCX
-        on_progress("Step 4/5: DOCX 목차 생성 중...")
+        on_progress("Step 4/5: DOCX 목차 생성 ���...")
+        t_step = _time.time()
         docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
         generate_docx(classification, articles_with_content, docx_path, date_str)
+        logger.info(f"{task_stage} Step 4 DOCX 생성 완료 | elapsed={_time.time()-t_step:.1f}s")
         on_progress("DOCX 생성 완료!")
 
         # Step 5: Package ZIP
         on_progress("Step 5/5: ZIP 파일 생성 중...")
+        t_step = _time.time()
         zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
         create_zip(articles_with_content, merged_pdf_path, docx_path, zip_path, date_str)
+        logger.info(f"{task_stage} Step 5 ZIP 패키징 ���료 | elapsed={_time.time()-t_step:.1f}s")
 
         session.zip_path = str(zip_path)
         session.status = SessionStatus.DONE
-        on_progress("모든 작업 완료!")
+        total_elapsed = _time.time() - t0
+        on_progress(f"모든 작업 완료! (최종화 {total_elapsed:.0f}초)")
+        logger.info(f"{task_stage} 완료 | zip={zip_path} | total_elapsed={total_elapsed:.1f}s")
 
     except Exception as e:
-        logger.error(f"Finalize task error: {e}", exc_info=True)
+        total_elapsed = _time.time() - t0
+        error_detail = (
+            f"{task_stage} 오류 | session={session_id[:8]} | "
+            f"error={type(e).__name__}: {str(e)[:300]} | total_elapsed={total_elapsed:.1f}s"
+        )
+        logger.error(error_detail, exc_info=True)
         session.status = SessionStatus.ERROR
-        session.error = str(e)
+        session.error = f"최종화 오류: {type(e).__name__}: {str(e)[:200]}"
+        session.progress_messages.append(f"⚠ {session.error}")
+
+
+class RewindRequest(BaseModel):
+    target_status: str  # "crawl_done" or "review_ready"
+
+
+@router.post("/api/rewind/{session_id}")
+async def rewind_session(session_id: str, body: RewindRequest):
+    """Rewind session to a previous stage without losing data."""
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    target = body.target_status
+    if target == "crawl_done":
+        # Go back to article selection — keep articles, clear downstream
+        session.status = SessionStatus.CRAWL_DONE
+        session.selected_ids = []
+        # Keep recommendations (expensive LLM call) and articles_with_content
+        # so user doesn't have to redo everything
+        logger.info(f"Session {session_id}: rewound to crawl_done (article selection)")
+        return {"status": "crawl_done"}
+    elif target == "review_ready":
+        # Go back to classification review — keep classification
+        if not session.classification:
+            raise HTTPException(400, "분류 결과가 없어 Index 검수로 돌아갈 수 없습니다.")
+        session.status = SessionStatus.REVIEW_READY
+        logger.info(f"Session {session_id}: rewound to review_ready (index review)")
+        return {"status": "review_ready"}
+    else:
+        raise HTTPException(400, f"Invalid target status: {target}")
 
 
 @router.get("/api/classification/{session_id}")
