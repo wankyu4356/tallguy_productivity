@@ -150,8 +150,20 @@ async def recommend_articles(
     return [ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요") for a in articles]
 
 
-async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOutput:
-    """Use Claude to classify articles into the taxonomy."""
+async def classify_articles(
+    articles: list[ArticleWithContent],
+    strict: bool = False,
+    previous_issues: str = "",
+) -> ClassifiedOutput:
+    """Use Claude to classify articles into the taxonomy.
+
+    Args:
+        articles: Articles with content to classify.
+        strict: If True, use stricter prompt demanding thoroughness and
+                validate that no major categories are empty. Used on retries.
+        previous_issues: Description of issues from a previous classification
+                         attempt (e.g. "투자회수 카테고리가 비어있었습니다").
+    """
     if not articles:
         return ClassifiedOutput()
 
@@ -162,8 +174,31 @@ async def classify_articles(articles: list[ArticleWithContent]) -> ClassifiedOut
         for a in articles
     ])
 
-    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+    # Build strict mode additions
+    strict_block = ""
+    if strict:
+        strict_block = """
+## ⚠️ 재분류 모드 — 이전 분류가 부정확하여 다시 분류합니다. 더 엄밀하게 분류해주세요.
 
+### 재분류 시 반드시 준수할 사항:
+1. **모든 하위 카테고리에 기사가 최소 1개 이상 배정되어야 합니다.** 비어있는 카테고리가 있으면 안 됩니다.
+   - 특히 Deal > 투자회수, Deal > 기타, Fundraising 카테고리를 꼼꼼히 확인하세요.
+   - IPO, 상장, 공모, 스팩(SPAC), 세컨더리, 투자 엑싯, 회수 관련 기사가 있다면 반드시 '투자회수'에 배정하세요.
+2. **기사 내용을 처음부터 끝까지 꼼꼼히 다시 읽고**, 키워드뿐 아니라 기사의 핵심 맥락을 파악하여 분류하세요.
+3. **경계선 상의 기사는 더 넓은 해석을 적용**하세요:
+   - "상장" 언급 → 투자회수 우선 검토
+   - "펀드" "출자" "LP" "GP" 언급 → Fundraising 우선 검토
+   - "M&A" "인수" "매각" "투자" 언급 → Deal > 경영권 인수 및 매각, 투자 유치 우선 검토
+4. **분류 이유(classification_reasoning)를 더 구체적으로** 작성하세요. 어떤 문장/키워드를 근거로 분류했는지 명시하세요.
+"""
+        if previous_issues:
+            strict_block += f"""
+### 이전 분류의 문제점 (반드시 수정):
+{previous_issues}
+"""
+
+    prompt = f"""다음 기사들을 분류 체계에 따라 분류하고, 중요도순으로 배치해주세요.
+{strict_block}
 ## 필수 분류 규칙 (반드시 적용):
 1. IB하우스/증권사 관련(주관 실적, 리그테이블 등) → Deal > 기타
 2. IPO 관련(상장, 공모, 코스닥/코스피 상장 등) → Deal > 투자회수
@@ -220,7 +255,21 @@ article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록
             if reasoning:
                 for aid, reason in reasoning.items():
                     logger.info(f"Classification: [{aid}] → {reason}")
-            return _parse_classification(data, articles)
+
+            result = _parse_classification(data, articles)
+
+            # Validate: check for empty major categories
+            empty_cats = _find_empty_categories(result)
+            if empty_cats:
+                logger.warning(f"빈 카테고리 발견: {', '.join(empty_cats)}")
+
+                # On first pass (not strict), auto-retry once in strict mode
+                if not strict:
+                    logger.info("자동 재분류 시도 (strict mode)...")
+                    issues = f"다음 카테고리가 비어있습니다: {', '.join(empty_cats)}. 기사를 다시 꼼꼼히 읽고 해당 카테고리에 배정할 기사가 있는지 확인하세요."
+                    return await classify_articles(articles, strict=True, previous_issues=issues)
+
+            return result
     except Exception as e:
         logger.error(f"LLM classification failed: {e}", exc_info=True)
 
@@ -253,6 +302,25 @@ article_order는 최종 PDF에 배치될 순서대로의 전체 기사 ID 목록
             ClassificationCategory(name="Fundraising, LP 이슈 및 GP 선정"),
         ],
     )
+
+
+def _find_empty_categories(result: ClassifiedOutput) -> list[str]:
+    """Find major subcategories that have zero articles assigned."""
+    empty = []
+    for cat in result.categories:
+        if cat.subcategories:
+            for sub in cat.subcategories:
+                # Check sub-items (e.g., Industry > E&F 포트폴리오 > 환경/폐기물)
+                if sub.sub_items:
+                    # Parent sub has no direct articles and sub_items exist — check sub_items
+                    pass
+                else:
+                    if not sub.articles:
+                        empty.append(f"{cat.name} > {sub.name}")
+        else:
+            if not cat.articles:
+                empty.append(cat.name)
+    return empty
 
 
 def _parse_classification(data: dict, articles: list[ArticleWithContent]) -> ClassifiedOutput:
