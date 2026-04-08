@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Browser settings
     BROWSER_HEADLESS: bool = True
     CRAWL_TIMEOUT_MS: int = 30000
-    NAVIGATION_TIMEOUT_MS: int = 15000
+    NAVIGATION_TIMEOUT_MS: int = 120000
     MAX_CONCURRENT_PAGES: int = 3
 
     # Cleanup
