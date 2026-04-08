@@ -346,6 +346,74 @@ async def _generate_task(session_id: str):
             await ctx.close()
 
 
+@router.post("/api/reclassify/{session_id}")
+async def reclassify(session_id: str, background_tasks: BackgroundTasks):
+    """Re-run AI classification in strict mode without re-fetching articles."""
+    sessions = _get_sessions()
+    session = sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if not session.articles_with_content:
+        raise HTTPException(400, "기사 본문 데이터가 없습니다. 처음부터 다시 진행하세요.")
+
+    background_tasks.add_task(_reclassify_task, session_id)
+    return {"status": "reclassifying"}
+
+
+async def _reclassify_task(session_id: str):
+    """Background task: re-classify articles in strict mode."""
+    import time as _time
+    from app.services.llm_classifier import classify_articles
+
+    sessions = _get_sessions()
+    session = sessions[session_id]
+    session.status = SessionStatus.GENERATING
+    task_stage = "[태스크:재분류]"
+    t0 = _time.time()
+
+    try:
+        articles = session.articles_with_content
+        logger.info(f"{task_stage} 시작 (strict mode) | session={session_id[:8]} | articles={len(articles)}개")
+        session.progress_messages.append("AI 재분류 중 (엄밀 모드)...")
+
+        # Identify issues from previous classification
+        prev_issues = ""
+        if session.classification:
+            from app.services.llm_classifier import _find_empty_categories
+            empty = _find_empty_categories(session.classification)
+            if empty:
+                prev_issues = f"이전 분류에서 다음 카테고리가 비어있었습니다: {', '.join(empty)}"
+
+        t_classify = _time.time()
+        classification = await classify_articles(
+            articles, strict=True, previous_issues=prev_issues
+        )
+        classify_elapsed = _time.time() - t_classify
+
+        session.classification = classification
+        session.status = SessionStatus.REVIEW_READY
+        total_elapsed = _time.time() - t0
+
+        session.progress_messages.append(
+            f"재분류 완료! ({classify_elapsed*1000:.0f}ms) 검수 페이지로 이동합니다..."
+        )
+        logger.info(
+            f"{task_stage} 완료 | categories={len(classification.categories)} | "
+            f"classify_time={classify_elapsed*1000:.0f}ms | total={total_elapsed*1000:.0f}ms"
+        )
+
+    except Exception as e:
+        total_elapsed = _time.time() - t0
+        logger.error(
+            f"{task_stage} 오류 | session={session_id[:8]} | "
+            f"error={type(e).__name__}: {str(e)[:300]} | elapsed={total_elapsed*1000:.0f}ms",
+            exc_info=True,
+        )
+        session.status = SessionStatus.ERROR
+        session.error = f"재분류 오류: {type(e).__name__}: {str(e)[:200]}"
+        session.progress_messages.append(f"⚠ {session.error}")
+
+
 async def _finalize_task(session_id: str):
     """Background task: merge PDFs, generate DOCX, package ZIP (after review)."""
     import time as _time

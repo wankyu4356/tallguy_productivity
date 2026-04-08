@@ -13,6 +13,7 @@
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
             <button class="btn" id="btn-back" onclick="goBackToReview()">기사 선택으로 돌아가기</button>
+            <button class="btn btn-warning" id="btn-reclassify" onclick="handleReclassify()">AI 재분류</button>
             <button class="btn btn-primary" id="btn-confirm">확정 및 PDF/DOCX 생성</button>
         </div>
     </div>
@@ -23,6 +24,7 @@
 
     <div style="display: flex; justify-content: center; gap: 12px; margin-top: 16px;">
         <button class="btn" onclick="goBackToReview()">기사 선택으로 돌아가기</button>
+        <button class="btn btn-warning" onclick="handleReclassify()">AI 재분류</button>
         <button class="btn btn-primary" id="btn-confirm-bottom" style="padding: 10px 32px;">
             확정 및 PDF/DOCX 생성
         </button>
@@ -351,6 +353,46 @@ async function goBackToReview() {
         }
     } catch (e) {
         alert('오류: ' + e.message);
+    }
+}
+
+async function handleReclassify() {
+    if (!confirm('AI가 기사를 다시 분류합니다. 현재 수동 편집은 초기화됩니다. 계속하시겠습니까?')) return;
+
+    const btns = document.querySelectorAll('#btn-reclassify, .btn-warning');
+    btns.forEach(b => { b.disabled = true; b.textContent = '재분류 중...'; });
+
+    try {
+        const res = await fetch(`/api/reclassify/${SESSION_ID}`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            alert('재분류 오류: ' + (err.detail || '알 수 없는 오류'));
+            btns.forEach(b => { b.disabled = false; b.textContent = 'AI 재분류'; });
+            return;
+        }
+
+        // Show progress
+        document.getElementById('finalize-status').style.display = 'block';
+        const msgEl = document.getElementById('finalize-msg');
+        msgEl.textContent = 'AI 재분류 중 (엄밀 모드)...';
+
+        const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
+        evtSource.onmessage = function(event) { msgEl.textContent = event.data; };
+        evtSource.addEventListener('done', function(event) {
+            evtSource.close();
+            if (event.data === 'review_ready') {
+                // Reload the page to show new classification
+                window.location.reload();
+            } else if (event.data === 'error') {
+                msgEl.textContent = '재분류 중 오류가 발생했습니다.';
+                msgEl.style.color = 'var(--error)';
+                btns.forEach(b => { b.disabled = false; b.textContent = 'AI 재분류'; });
+            }
+        });
+        evtSource.onerror = function() { evtSource.close(); };
+    } catch (e) {
+        alert('오류: ' + e.message);
+        btns.forEach(b => { b.disabled = false; b.textContent = 'AI 재분류'; });
     }
 }
 
