@@ -98,6 +98,37 @@
 
     <div style="text-align: center; margin-top: 24px;">
         <a href="/" class="btn">&#x1F504; 새 클리핑 시작</a>
+    <div style="display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;">
+        <a href="/review-index/{{ session.session_id }}" class="btn" onclick="return goBack(event, 'review_ready')">Index 검수로 돌아가기</a>
+        <a href="/review/{{ session.session_id }}" class="btn" onclick="return goBack(event, 'crawl_done')">기사 선택으로 돌아가기</a>
+        <a href="/" class="btn btn-primary">새 클리핑 시작</a>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SESSION_ID = "{{ session.session_id }}";
+
+async function goBack(event, targetStatus) {
+    event.preventDefault();
+    const href = event.currentTarget.getAttribute('href');
+    try {
+        const res = await fetch(`/api/rewind/${SESSION_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_status: targetStatus }),
+        });
+        if (res.ok) {
+            window.location.href = href;
+        } else {
+            const data = await res.json();
+            alert('오류: ' + (data.detail || '되돌리기 실패'));
+        }
+    } catch (e) {
+        alert('오류: ' + e.message);
+    }
+    return false;
+}
+</script>
 {% endblock %}

@@ -276,29 +276,42 @@ def _find_login_form_and_fill(driver, user_id: str, password: str) -> bool:
 
 def _load_login_page(driver) -> bool:
     """Try login URLs until one loads successfully. Returns True if loaded."""
+    stage = "[로그인:페이지로드]"
+    t0 = time.time()
     for url in _LOGIN_URLS:
-        logger.debug(f"로그인 URL 시도: {url}")
+        logger.info(f"{stage} URL 시도: {url}")
         try:
             driver.get(url)
-        except TimeoutException:
-            logger.debug(f"로그인 URL 타임아웃: {url}")
+        except Exception as e:
+            elapsed = time.time() - t0
+            logger.warning(
+                f"{stage} URL 타임아웃 | url={url} | "
+                f"error={type(e).__name__}: {str(e)[:200]} | elapsed={elapsed:.1f}s"
+            )
             continue
 
-        time.sleep(3)
+        time.sleep(1)
 
         if _is_error_page(driver):
-            logger.debug(f"로그인 URL 에러: {url}")
-            time.sleep(2)
+            logger.warning(f"{stage} 에러 페이지 감지 | url={url} | title={driver.title}")
+            time.sleep(1)
             if _is_error_page(driver):
                 continue
 
-        logger.info(f"로그인 페이지 로드 성공: {url}")
+        elapsed = time.time() - t0
+        logger.info(f"{stage} 성공 | url={url} | elapsed={elapsed:.1f}s")
         return True
 
     # Fallback: open main page
-    logger.warning("모든 로그인 URL 실패. 메인 페이지를 엽니다.")
-    driver.get(THEBELL_BASE)
-    time.sleep(2)
+    elapsed = time.time() - t0
+    logger.warning(f"{stage} 모든 로그인 URL 실패 ({len(_LOGIN_URLS)}개) — 메인 페이지 시도 | elapsed={elapsed:.1f}s")
+    try:
+        driver.get(THEBELL_BASE)
+    except Exception as e:
+        logger.warning(
+            f"{stage} 메인 페이지 타임아웃 | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+        )
+    time.sleep(1)
     return False
 
 
@@ -311,57 +324,67 @@ def _auto_login_sync(driver) -> bool:
     3. Click login button
     4. Verify login success via cookies / page state
     """
+    stage = "[로그인:자동]"
+    t0 = time.time()
     user_id = settings.THEBELL_ID
     password = settings.THEBELL_PW
 
     if not user_id or not password:
-        logger.info("자동 로그인 자격증명 미설정 — 수동 로그인으로 전환")
+        logger.info(f"{stage} 자격증명 미설정 — 수동 로그인으로 전환")
         return False
 
+    logger.info(f"{stage} 시작 | user_id={user_id[:3]}***")
     _load_login_page(driver)
 
     # Wait for login form to be ready
-    time.sleep(2)
+    time.sleep(1)
 
     # Attempt to fill and submit login form
     form_submitted = _find_login_form_and_fill(driver, user_id, password)
     if not form_submitted:
-        logger.warning("자동 로그인 폼 제출 실패 — 수동 로그인으로 전환")
+        logger.warning(f"{stage} 폼 제출 실패 — 수동 로그인으로 전환 | elapsed={time.time()-t0:.1f}s")
         return False
 
     # Wait for login to process
-    time.sleep(3)
+    time.sleep(1)
 
     # Check for security module blocking (보안 프로그램 설치 요구)
     try:
         page_source = driver.page_source
         security_indicators = ["보안프로그램", "보안 프로그램", "install.asp", "CERTTEXT"]
-        if any(ind in page_source for ind in security_indicators):
-            logger.warning("보안 프로그램 설치 요구 감지 — 수동 로그인으로 전환")
-            return False
-    except Exception:
-        pass
+        for ind in security_indicators:
+            if ind in page_source:
+                logger.warning(f"{stage} 보안 프로그램 설치 요구 감지 | match='{ind}' | elapsed={time.time()-t0:.1f}s")
+                return False
+    except Exception as e:
+        logger.warning(f"{stage} 보안 프로그램 확인 중 오류 | error={type(e).__name__}: {e}")
 
     # Check for login error messages
     try:
         page_source = driver.page_source
         error_indicators = ["아이디 또는 비밀번호", "로그인 실패", "입력해 주세요", "확인해 주세요"]
-        if any(ind in page_source for ind in error_indicators):
-            logger.warning("로그인 실패 메시지 감지 — 자격증명을 확인하세요")
-            return False
-    except Exception:
-        pass
+        for ind in error_indicators:
+            if ind in page_source:
+                logger.warning(f"{stage} 로그인 실패 메시지 | match='{ind}' | elapsed={time.time()-t0:.1f}s")
+                return False
+    except Exception as e:
+        logger.warning(f"{stage} 로그인 오류 확인 중 예외 | error={type(e).__name__}: {e}")
 
     # Verify login success — ONLY trust page UI indicators, not URL changes
     # Navigate to main page to check for logout button
-    driver.get(THEBELL_BASE)
-    time.sleep(2)
+    try:
+        driver.get(THEBELL_BASE)
+    except Exception as e:
+        logger.warning(
+            f"{stage} 로그인 확인 페이지 타임아웃 | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+        )
+    time.sleep(1)
 
     if _check_logged_in(driver):
-        logger.info("자동 로그인 성공!")
+        logger.info(f"{stage} 성공! | elapsed={time.time()-t0:.1f}s")
         return True
 
-    logger.warning("자동 로그인 결과 불확실 — 수동 로그인으로 전환")
+    logger.warning(f"{stage} 결과 불확실 — 수동 로그인으로 전환 | url={driver.current_url} | elapsed={time.time()-t0:.1f}s")
     return False
 
 
@@ -371,31 +394,34 @@ def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
     IMPORTANT: Do NOT navigate or use driver.get/back during the wait loop.
     The user is controlling the browser — we just poll _check_logged_in.
     """
+    stage = "[로그인:수동]"
+    t0 = time.time()
     # Load login page once to start
     _load_login_page(driver)
 
-    logger.info("브라우저에서 더벨 로그인을 완료하세요 (최대 5분 대기)...")
+    logger.info(f"{stage} 브라우저에서 더벨 로그인을 완료하세요 (최대 {timeout}초 대기)...")
 
     last_url = driver.current_url
-    start = time.time()
-    while time.time() - start < timeout:
+    check_count = 0
+    while time.time() - t0 < timeout:
         try:
             current_url = driver.current_url
+            check_count += 1
 
             if current_url != last_url:
-                logger.info(f"페이지 이동 감지 | {last_url} → {current_url}")
+                logger.info(f"{stage} 페이지 이동 감지 | {last_url} → {current_url} | elapsed={time.time()-t0:.1f}s")
                 last_url = current_url
-                time.sleep(2)  # Wait for new page to fully load
+                time.sleep(1)  # Wait for new page to fully load
 
             if _check_logged_in(driver):
-                logger.info("수동 로그인 성공!")
+                logger.info(f"{stage} 성공! | elapsed={time.time()-t0:.1f}s | checks={check_count}")
                 return True
 
-        except Exception:
-            pass
-        time.sleep(3)
+        except Exception as e:
+            logger.debug(f"{stage} 폴링 오류 | error={type(e).__name__}: {str(e)[:100]} | elapsed={time.time()-t0:.1f}s")
+        time.sleep(1)
 
-    logger.error("로그인 타임아웃 (5분)")
+    logger.error(f"{stage} 타임아웃 ({timeout}초) | checks={check_count} | last_url={last_url}")
     return False
 
 
@@ -406,16 +432,25 @@ def _login_sync(driver) -> bool:
     1. Try auto-login with configured THEBELL_ID/PW
     2. If auto-login fails, open browser for manual login
     """
+    stage = "[로그인]"
+    t0 = time.time()
+    logger.info(f"{stage} ===== 로그인 프로세스 시작 =====")
+
     # Step 1: Try auto-login
     try:
         if _auto_login_sync(driver):
+            logger.info(f"{stage} 자동 로그인으로 완료 | total_elapsed={time.time()-t0:.1f}s")
             return True
     except Exception as e:
-        logger.warning(f"자동 로그인 중 예외 발생: {e}")
+        logger.warning(
+            f"{stage} 자동 로그인 중 예외 | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+        )
 
     # Step 2: Fall back to manual login
-    logger.info("수동 로그인 모드로 전환합니다.")
-    return _manual_login_sync(driver)
+    logger.info(f"{stage} 수동 로그인 모드로 전환 | elapsed={time.time()-t0:.1f}s")
+    result = _manual_login_sync(driver)
+    logger.info(f"{stage} ===== 로그인 프로세스 종료 | result={'성공' if result else '실패'} | total_elapsed={time.time()-t0:.1f}s =====")
+    return result
 
 
 async def login(context: SeleniumContext) -> bool:
@@ -423,7 +458,10 @@ async def login(context: SeleniumContext) -> bool:
     try:
         return await asyncio.to_thread(_login_sync, context.driver)
     except Exception as e:
-        logger.error(f"Login error: {e}", exc_info=True)
+        logger.error(
+            f"[로그인] 치명적 오류 | error={type(e).__name__}: {str(e)[:300]}",
+            exc_info=True,
+        )
         return False
 
 
@@ -510,8 +548,16 @@ def _diagnose_page(driver) -> str:
 
 def _navigate_to_main(driver):
     """Navigate to TheBell main page."""
-    driver.get(THEBELL_BASE)
-    time.sleep(2)
+    stage = "[네비게이션:메인]"
+    t0 = time.time()
+    try:
+        driver.get(THEBELL_BASE)
+        logger.info(f"{stage} 성공 | elapsed={time.time()-t0:.1f}s")
+    except Exception as e:
+        logger.warning(
+            f"{stage} 타임아웃 (부분 로드로 계속) | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+        )
+    time.sleep(1)
 
 
 def _navigate_to_section(driver, section_code: str) -> bool:
@@ -519,18 +565,28 @@ def _navigate_to_section(driver, section_code: str) -> bool:
 
     URL pattern: /front/NewsList.asp?Code={section_code}
     """
+    stage = f"[네비게이션:섹션={section_code}]"
+    t0 = time.time()
     url = f"{THEBELL_BASE}/front/NewsList.asp?Code={section_code}"
-    logger.info(f"섹션 이동: Code={section_code} | url={url}")
-    driver.get(url)
-    time.sleep(2)
+    logger.info(f"{stage} 이동 시작 | url={url}")
+    try:
+        driver.get(url)
+        logger.info(f"{stage} 페이지 로드 완료 | elapsed={time.time()-t0:.1f}s")
+    except Exception as e:
+        logger.warning(
+            f"{stage} 페이지 로드 타임아웃 (부분 로드로 계속) | "
+            f"error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+        )
+        # Page may be partially loaded but still usable — continue
+    time.sleep(1)
 
     if _is_error_page(driver):
-        logger.warning(f"섹션 페이지 에러 | Code={section_code} | url={driver.current_url}")
+        logger.error(f"{stage} 에러 페이지 | url={driver.current_url} | title={driver.title} | elapsed={time.time()-t0:.1f}s")
         return False
 
     current_url = driver.current_url.lower()
     if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
-        logger.error(f"세션 만료: 로그인 리다이렉트 | url={driver.current_url}")
+        logger.error(f"{stage} 세션 만료 — 로그인 리다이렉트 | url={driver.current_url} | elapsed={time.time()-t0:.1f}s")
         return False
 
     return True
@@ -580,7 +636,7 @@ def _click_next_page(driver) -> bool:
                     """)
                     if result:
                         logger.info(f"JS 페이지네이션: {func}({next_page})")
-                        time.sleep(2)
+                        time.sleep(1)
                         return True
                 except Exception:
                     continue
@@ -601,7 +657,7 @@ def _click_next_page(driver) -> bool:
                         if el.is_displayed():
                             logger.info(f"onclick 페이지네이션 클릭: {next_page}")
                             el.click()
-                            time.sleep(2)
+                            time.sleep(1)
                             return True
             except Exception:
                 pass
@@ -630,7 +686,7 @@ def _click_next_page(driver) -> bool:
                     if link.is_displayed():
                         logger.info(f"다음 페이지 클릭: '{text or title_attr or alt_attr}'")
                         link.click()
-                        time.sleep(2)
+                        time.sleep(1)
                         return True
         except Exception:
             continue
@@ -657,7 +713,7 @@ def _click_next_page(driver) -> bool:
                             if link.text.strip() == next_num and link.is_displayed():
                                 logger.info(f"페이지 {next_num} 클릭")
                                 link.click()
-                                time.sleep(2)
+                                time.sleep(1)
                                 return True
                 break
     except Exception:
@@ -680,8 +736,11 @@ def _click_next_page(driver) -> bool:
             # Only try if we haven't visited page > 1 already and this is page 1
             if current_page == 1 or "Page=" in current_url:
                 logger.info(f"URL 기반 페이지네이션: Page={current_page + 1}")
-                driver.get(next_url)
-                time.sleep(2)
+                try:
+                    driver.get(next_url)
+                except Exception as e:
+                    logger.warning(f"페이지네이션 타임아웃 (부분 로드로 계속): {type(e).__name__}")
+                time.sleep(1)
                 return True
     except Exception:
         pass
@@ -692,17 +751,19 @@ def _click_next_page(driver) -> bool:
 
 def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
     """Extract articles from the currently loaded page."""
+    stage = f"[크롤링:페이지파싱:{category_label}]"
+    t0 = time.time()
     articles = []
     time.sleep(1)
 
     # Check for problems first
     current_url = driver.current_url.lower()
     if any(kw in current_url for kw in ["login", "logincert", "loginform"]):
-        logger.error(f"세션 만료: 로그인 리다이렉트 | url={driver.current_url}")
+        logger.error(f"{stage} 세션 만료 — 로그인 리다이렉트 | url={driver.current_url}")
         return []
 
     if _is_error_page(driver):
-        logger.warning(f"에러 페이지 | url={driver.current_url} | title={driver.title}")
+        logger.warning(f"{stage} 에러 페이지 | url={driver.current_url} | title={driver.title}")
         return []
 
     # Find article links — newsview.asp is the TheBell article page
@@ -836,12 +897,15 @@ def _crawl_current_page(driver, category_label: str) -> list[ArticleInfo]:
         except Exception:
             continue
 
-    logger.info(f"페이지 기사 수집: {len(articles)}개 | url={driver.current_url}")
+    elapsed = time.time() - t0
+    logger.info(f"{stage} 완료 | 기사={len(articles)}개 | url={driver.current_url} | elapsed={elapsed:.1f}s")
     return articles
 
 
 def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None) -> None:
     """Fetch publish dates and summaries for articles missing them by visiting detail pages."""
+    stage = "[크롤링:상세정보]"
+    t0 = time.time()
     # Articles needing date OR summary
     needs_detail = [
         a for a in articles
@@ -851,9 +915,10 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
         and "newsview" in a.url.lower()
     ]
     if not needs_detail:
+        logger.info(f"{stage} 보완 필요 기사 없음 — 건너뜀")
         return
 
-    logger.info(f"상세정보 보완 필요 기사 {len(needs_detail)}개 — 상세 페이지에서 날짜/요약 추출 시도")
+    logger.info(f"{stage} 시작 | 대상={len(needs_detail)}개 / 전체={len(articles)}개")
     if on_progress:
         on_progress(f"기사 상세정보 보완 중... ({len(needs_detail)}개)")
 
@@ -974,7 +1039,10 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
             need_summary = not a.summary
 
             logger.debug(f"상세정보 방문: {a.title[:40]} | url={a.url}")
-            driver.get(a.url)
+            try:
+                driver.get(a.url)
+            except Exception as e:
+                logger.warning(f"상세페이지 타임아웃 (부분 로드로 계속): {a.title[:30]} | {type(e).__name__}")
             time.sleep(0.5)
             consecutive_errors = 0  # reset on successful navigation
 
@@ -1040,13 +1108,14 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
             logger.debug(f"상세정보 추출 실패: {a.title[:30]} | url={a.url} | {type(e).__name__}: {e}")
             continue
 
+    elapsed = time.time() - t0
     logger.info(
-        f"상세정보 보완 완료 | 대상={len(needs_detail)}개 | "
+        f"{stage} 완료 | 대상={len(needs_detail)}개 | "
         f"날짜추출={date_fetched}개 | 요약추출={summary_fetched}개 | 시간미포함={no_time_count}개 | "
-        f"연속에러={consecutive_errors}"
+        f"연속에러={consecutive_errors} | elapsed={elapsed:.1f}s"
     )
     if on_progress:
-        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출")
+        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출 ({elapsed:.0f}초)")
 
     # Return to original page
     try:
@@ -1064,11 +1133,14 @@ def _crawl_section_sync(
     on_progress: callable | None = None,
 ) -> list[ArticleInfo]:
     """Crawl articles from the currently navigated section with pagination."""
+    stage = f"[크롤링:섹션:{category_label}]"
+    t0 = time.time()
     all_articles = []
     seen_ids = set()
     page_num = 1
     max_pages = 20
     consecutive_undated_pages = 0  # track pages with no datable articles
+    logger.info(f"{stage} 시작 | date_range={date_from.strftime('%Y-%m-%d %H:%M')}~{date_to.strftime('%Y-%m-%d %H:%M')}")
 
     while page_num <= max_pages:
         articles = _crawl_current_page(driver, category_label)
@@ -1135,8 +1207,12 @@ def _crawl_section_sync(
 
         page_num += 1
 
+    elapsed = time.time() - t0
+    logger.info(
+        f"{stage} 완료 | 기사={len(all_articles)}개 | 페이지={page_num} | elapsed={elapsed:.1f}s"
+    )
     if on_progress:
-        on_progress(f"{category_label}: {len(all_articles)}개 수집 완료")
+        on_progress(f"{category_label}: {len(all_articles)}개 수집 완료 ({elapsed:.0f}초)")
 
     return all_articles
 
@@ -1150,21 +1226,48 @@ async def crawl_all_categories(
     """Crawl all target categories by navigating directly to section URLs."""
 
     def _crawl_sync():
+        stage = "[크롤링:전체]"
+        t_total = time.time()
         driver = context.driver
         all_articles: list[ArticleInfo] = []
         seen_ids = set()
         seen_titles = set()
 
+        # Per-section tracking for summary
+        section_results = []  # list of (label, code, article_count, elapsed, error_msg)
+
+        logger.info(
+            f"{stage} ===== 크롤링 시작 ===== | "
+            f"date_range={date_from.strftime('%Y-%m-%d %H:%M')}~{date_to.strftime('%Y-%m-%d %H:%M')} | "
+            f"sections={len(SECTION_CODES)}개"
+        )
+
         for label, code in SECTION_CODES:
+            t_section = time.time()
             if on_progress:
                 on_progress(f"카테고리 수집 시작: {label}")
 
             if not _navigate_to_section(driver, code):
+                elapsed_s = time.time() - t_section
+                error_msg = f"섹션 이동 실패 (Code={code})"
+                section_results.append((label, code, 0, elapsed_s, error_msg))
+                logger.error(f"{stage} {error_msg} | elapsed={elapsed_s:.1f}s")
                 if on_progress:
-                    on_progress(f"⚠ '{label}' 섹션 이동 실패 (Code={code})")
+                    on_progress(f"⚠ '{label}' {error_msg}")
                 continue
 
-            articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
+            try:
+                articles = _crawl_section_sync(driver, label, date_from, date_to, on_progress)
+            except Exception as e:
+                elapsed_s = time.time() - t_section
+                error_msg = f"섹션 크롤링 예외: {type(e).__name__}: {str(e)[:200]}"
+                section_results.append((label, code, 0, elapsed_s, error_msg))
+                logger.error(f"{stage} {error_msg} | elapsed={elapsed_s:.1f}s", exc_info=True)
+                if on_progress:
+                    on_progress(f"⚠ '{label}' 크롤링 오류: {type(e).__name__}")
+                continue
+
+            new_count = 0
             for a in articles:
                 # Deduplicate by ID and by title
                 title_key = a.title.strip()
@@ -1172,10 +1275,18 @@ async def crawl_all_categories(
                     seen_ids.add(a.id)
                     seen_titles.add(title_key)
                     all_articles.append(a)
+                    new_count += 1
+
+            elapsed_s = time.time() - t_section
+            section_results.append((label, code, new_count, elapsed_s, None))
+            logger.info(
+                f"{stage} 섹션 완료: {label} | 신규={new_count}개 (중복제외) | "
+                f"원본={len(articles)}개 | elapsed={elapsed_s:.1f}s"
+            )
 
         if len(all_articles) == 0:
             msg = "전체 크롤링 결과 0개 — 로그인 만료, 봇 차단, 또는 사이트 구조 변경 가능성"
-            logger.error(msg)
+            logger.error(f"{stage} {msg}")
             if on_progress:
                 on_progress(f"⚠ {msg}")
         else:
@@ -1185,7 +1296,10 @@ async def crawl_all_categories(
             try:
                 _fetch_article_details(driver, all_articles, on_progress)
             except Exception as e:
-                logger.warning(f"상세정보 보완 중 오류 (수집된 기사는 유지): {e}")
+                logger.warning(
+                    f"{stage} 상세정보 보완 중 오류 (수집된 기사는 유지) | "
+                    f"error={type(e).__name__}: {str(e)[:200]}"
+                )
                 if on_progress:
                     on_progress(f"⚠ 상세정보 보완 중 오류 — 수집된 기사는 유지됩니다")
 
@@ -1198,12 +1312,42 @@ async def crawl_all_categories(
             ]
             filtered_count = before_count - len(all_articles)
             if filtered_count > 0:
-                logger.info(f"날짜 확인 후 범위 외 기사 {filtered_count}개 제거")
+                logger.info(f"{stage} 날짜 확인 후 범위 외 기사 {filtered_count}개 제거")
                 if on_progress:
                     on_progress(f"날짜 확인 후 범위 외 기사 {filtered_count}개 제거")
 
             if on_progress:
                 on_progress(f"전체 크롤링 완료: 총 {len(all_articles)}개 기사 수집")
+
+        # ===== Final Summary =====
+        total_elapsed = time.time() - t_total
+        success_sections = [r for r in section_results if r[4] is None]
+        failed_sections = [r for r in section_results if r[4] is not None]
+        total_articles = sum(r[2] for r in section_results)
+
+        summary_lines = [
+            f"{stage} ===== 크롤링 완료 요약 =====",
+            f"  총 소요시간: {total_elapsed:.1f}s",
+            f"  날짜 범위: {date_from.strftime('%Y-%m-%d %H:%M')} ~ {date_to.strftime('%Y-%m-%d %H:%M')}",
+            f"  섹션: 성공={len(success_sections)}/{len(SECTION_CODES)} | 실패={len(failed_sections)}/{len(SECTION_CODES)}",
+            f"  총 기사: {len(all_articles)}개 (필터 전: {total_articles}개)",
+        ]
+        for label, code, count, elapsed_s, err in section_results:
+            status = f"✓ {count}개 ({elapsed_s:.1f}s)" if err is None else f"✗ {err} ({elapsed_s:.1f}s)"
+            summary_lines.append(f"  [{code}] {label}: {status}")
+        if failed_sections:
+            summary_lines.append("  --- 실패 상세 ---")
+            for label, code, _, elapsed_s, err in failed_sections:
+                summary_lines.append(f"  [{code}] {label}: {err}")
+
+        logger.info("\n".join(summary_lines))
+
+        if on_progress:
+            success_msg = f"크롤링 요약: {len(success_sections)}/{len(SECTION_CODES)} 섹션 성공, 총 {len(all_articles)}개 기사 ({total_elapsed:.0f}초)"
+            on_progress(success_msg)
+            if failed_sections:
+                fail_names = ", ".join(r[0] for r in failed_sections)
+                on_progress(f"⚠ 실패 섹션: {fail_names}")
 
         return all_articles
 
@@ -1211,7 +1355,8 @@ async def crawl_all_categories(
         return await asyncio.to_thread(_crawl_sync)
     except Exception as e:
         logger.error(
-            f"크롤링 치명적 오류 | type={type(e).__name__} | "
+            f"[크롤링:전체] 치명적 오류 | type={type(e).__name__} | "
+            f"message={str(e)[:300]} | "
             f"date_range={date_from.strftime('%Y-%m-%d')}~{date_to.strftime('%Y-%m-%d')} | "
             f"categories={len(SECTION_CODES)}개",
             exc_info=True,

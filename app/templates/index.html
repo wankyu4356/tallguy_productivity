@@ -238,6 +238,103 @@
                 </div>
             </div>
             <p class="funfact-hint">기다리는 동안 알아두면 쓸데없는 신비한 잡학사전</p>
+        <!-- Crawl Progress Tracker -->
+        <div id="crawl-tracker" style="display:none; margin-top: 20px;">
+            <div class="crawl-timer-bar">
+                <div class="crawl-timer-label">총 소요시간</div>
+                <div class="crawl-timer-value" id="crawl-timer">00:00.000</div>
+            </div>
+
+            <div class="crawl-pipeline" id="crawl-pipeline">
+                <div class="crawl-stage" id="stage-browser" data-stage="browser">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">브라우저 준비</div>
+                        <div class="crawl-stage-desc">Edge 브라우저 시작</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-login" data-stage="login">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">더벨 로그인</div>
+                        <div class="crawl-stage-desc">브라우저에서 로그인 대기 중</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-deal" data-stage="deal">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">Deal 섹션</div>
+                        <div class="crawl-stage-desc">대기 중</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-finance" data-stage="finance">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">Finance 섹션</div>
+                        <div class="crawl-stage-desc">대기 중</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-invest" data-stage="invest">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">Invest 섹션</div>
+                        <div class="crawl-stage-desc">대기 중</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-industry" data-stage="industry">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">Industry 섹션</div>
+                        <div class="crawl-stage-desc">헬스바이오 / 건설부동산 / 중소기업</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+                <div class="crawl-stage-connector"></div>
+                <div class="crawl-stage" id="stage-detail" data-stage="detail">
+                    <div class="crawl-stage-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <div class="crawl-stage-body">
+                        <div class="crawl-stage-title">상세정보 보완</div>
+                        <div class="crawl-stage-desc">날짜/요약 추출</div>
+                        <div class="crawl-stage-time"></div>
+                    </div>
+                    <div class="crawl-stage-status"></div>
+                </div>
+            </div>
+
+            <div class="crawl-log-toggle">
+                <button class="btn btn-sm" onclick="document.getElementById('crawl-log').classList.toggle('show')">실시간 로그 보기</button>
+            </div>
+            <div class="log-area crawl-log" id="crawl-log"></div>
         </div>
     </div>
 
@@ -2216,15 +2313,69 @@ const DEMO_MODE = true; // 시연 모드: true면 오버레이 비활성화
     }
 })();
 
+let crawlStartTime = null;
+let timerInterval = null;
+let stageStartTimes = {};
+
+function formatMs(ms) {
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    const millis = ms % 1000;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+}
+
+function startTimer() {
+    crawlStartTime = performance.now();
+    timerInterval = setInterval(() => {
+        const elapsed = Math.floor(performance.now() - crawlStartTime);
+        document.getElementById('crawl-timer').textContent = formatMs(elapsed);
+        // Update active stage time
+        Object.keys(stageStartTimes).forEach(stageId => {
+            const stage = document.getElementById(stageId);
+            if (stage && stage.classList.contains('active')) {
+                const stageElapsed = Math.floor(performance.now() - stageStartTimes[stageId]);
+                stage.querySelector('.crawl-stage-time').textContent = formatMs(stageElapsed);
+            }
+        });
+    }, 47); // ~21fps for smooth ms display
+}
+
+function setStage(stageId, state, desc) {
+    const stage = document.getElementById(stageId);
+    if (!stage) return;
+
+    stage.className = 'crawl-stage ' + state;
+    if (desc) stage.querySelector('.crawl-stage-desc').textContent = desc;
+
+    if (state === 'active') {
+        stageStartTimes[stageId] = performance.now();
+    } else if (state === 'done' && stageStartTimes[stageId]) {
+        const elapsed = Math.floor(performance.now() - stageStartTimes[stageId]);
+        stage.querySelector('.crawl-stage-time').textContent = formatMs(elapsed);
+    }
+}
+
+function appendCrawlLog(msg) {
+    const log = document.getElementById('crawl-log');
+    const p = document.createElement('p');
+    p.className = msg.startsWith('⚠') ? 'log-error' : 'log-info';
+    const ts = crawlStartTime ? formatMs(Math.floor(performance.now() - crawlStartTime)) : '--';
+    p.textContent = `[${ts}] ${msg}`;
+    log.appendChild(p);
+    log.scrollTop = log.scrollHeight;
+}
+
 async function startCrawl() {
     const btn = document.getElementById('btn-start-crawl');
-    const statusArea = document.getElementById('crawl-status');
-    const statusText = document.getElementById('crawl-status-text');
+    const tracker = document.getElementById('crawl-tracker');
 
     btn.disabled = true;
     statusArea.style.display = 'flex';
     statusText.textContent = '크롤링 시작 중...';
     showFunFacts();
+    tracker.style.display = 'block';
+    startTimer();
+    setStage('stage-browser', 'active', '브라우저 시작 중...');
 
     try {
         const dateFrom = document.getElementById('date-from').value;
@@ -2236,40 +2387,118 @@ async function startCrawl() {
         });
         const data = await res.json();
         if (data.session_id) {
-            statusText.textContent = '크롤링 진행 중... 잠시 기다려주세요.';
-            pollCrawlStatus(data.session_id);
+            connectCrawlSSE(data.session_id);
         } else {
-            statusText.textContent = '오류: ' + (data.detail || '알 수 없는 오류');
+            setStage('stage-browser', 'error', '오류: ' + (data.detail || '알 수 없는 오류'));
             btn.disabled = false;
         }
     } catch (e) {
-        statusText.textContent = '오류: ' + e.message;
+        setStage('stage-browser', 'error', '오류: ' + e.message);
         btn.disabled = false;
     }
 }
 
-async function pollCrawlStatus(sessionId) {
-    const statusText = document.getElementById('crawl-status-text');
-    const interval = setInterval(async () => {
-        try {
-            const res = await fetch(`/api/crawl/${sessionId}`);
-            const data = await res.json();
-            if (data.status === 'crawl_done') {
-                clearInterval(interval);
-                statusText.textContent = `크롤링 완료! ${data.article_count}개 기사 수집됨. 이동 중...`;
-                setTimeout(() => window.location.href = `/review/${sessionId}`, 1000);
-            } else if (data.status === 'error') {
-                clearInterval(interval);
-                statusText.textContent = '오류: ' + data.error;
-                document.getElementById('btn-start-crawl').disabled = false;
-            } else {
-                statusText.textContent = `크롤링 진행 중... (${data.progress || ''})`;
-            }
-        } catch (e) {
-            clearInterval(interval);
-            statusText.textContent = '상태 확인 오류: ' + e.message;
+function connectCrawlSSE(sessionId) {
+    const evtSource = new EventSource(`/api/progress/${sessionId}`);
+    let currentActiveStage = 'stage-browser';
+
+    evtSource.onmessage = function(event) {
+        const msg = event.data;
+        appendCrawlLog(msg);
+
+        // Detect stage transitions from progress messages
+        if (msg.includes('브라우저') && msg.includes('로그인')) {
+            setStage('stage-browser', 'done', '준비 완료');
+            setStage('stage-login', 'active', '브라우저에서 로그인 대기 중...');
+            currentActiveStage = 'stage-login';
         }
-    }, 2000);
+        if (msg.includes('로그인 성공')) {
+            setStage('stage-login', 'done', '로그인 완료');
+        }
+        if (msg.includes('카테고리 수집 시작: Deal')) {
+            setStage('stage-deal', 'active', '수집 중...');
+            currentActiveStage = 'stage-deal';
+        }
+        if (msg.includes('Deal:') && msg.includes('수집 완료')) {
+            setStage('stage-deal', 'done', msg.split('Deal:')[1]?.trim() || '완료');
+        }
+        if (msg.includes('카테고리 수집 시작: Finance')) {
+            setStage('stage-finance', 'active', '수집 중...');
+            currentActiveStage = 'stage-finance';
+        }
+        if (msg.includes('Finance:') && msg.includes('수집 완료')) {
+            setStage('stage-finance', 'done', msg.split('Finance:')[1]?.trim() || '완료');
+        }
+        if (msg.includes('카테고리 수집 시작: Invest')) {
+            setStage('stage-invest', 'active', '수집 중...');
+            currentActiveStage = 'stage-invest';
+        }
+        if (msg.includes('Invest:') && msg.includes('수집 완료')) {
+            setStage('stage-invest', 'done', msg.split('Invest:')[1]?.trim() || '완료');
+        }
+        if (msg.includes('카테고리 수집 시작: Industry')) {
+            setStage('stage-industry', 'active', '수집 중...');
+            currentActiveStage = 'stage-industry';
+        }
+        if (msg.includes('Industry') && msg.includes('수집 완료')) {
+            const m = msg.match(/Industry[^:]*:\s*(.*)/);
+            if (m) setStage('stage-industry', 'done', m[1].trim());
+        }
+        if (msg.includes('상세정보 보완 중')) {
+            if (currentActiveStage === 'stage-industry') setStage('stage-industry', 'done', '완료');
+            setStage('stage-detail', 'active', msg);
+            currentActiveStage = 'stage-detail';
+        }
+        if (msg.includes('상세정보 보완:')) {
+            setStage('stage-detail', 'done', msg);
+        }
+
+        // Section failures
+        if (msg.includes('⚠') && msg.includes('섹션 이동 실패')) {
+            if (msg.includes('Deal')) setStage('stage-deal', 'error', '실패');
+            if (msg.includes('Finance')) setStage('stage-finance', 'error', '실패');
+            if (msg.includes('Invest')) setStage('stage-invest', 'error', '실패');
+            if (msg.includes('Industry')) setStage('stage-industry', 'error', '실패');
+        }
+
+        // Update article counts in active stages
+        const countMatch = msg.match(/(\d+)개 수집 중/);
+        if (countMatch && currentActiveStage) {
+            const stage = document.getElementById(currentActiveStage);
+            if (stage && stage.classList.contains('active')) {
+                stage.querySelector('.crawl-stage-desc').textContent = msg;
+            }
+        }
+    };
+
+    evtSource.addEventListener('done', function(event) {
+        evtSource.close();
+        clearInterval(timerInterval);
+
+        const status = event.data;
+        if (status === 'crawl_done') {
+            // Mark all remaining pending stages as skipped
+            document.querySelectorAll('.crawl-stage:not(.done):not(.error)').forEach(s => {
+                if (s.classList.contains('active')) {
+                    setStage(s.id, 'done', '완료');
+                }
+            });
+            appendCrawlLog('크롤링 완료! 기사 선택 페이지로 이동합니다...');
+            setTimeout(() => window.location.href = `/review/${sessionId}`, 1500);
+        } else if (status === 'error') {
+            appendCrawlLog('⚠ 오류가 발생했습니다.');
+            document.querySelectorAll('.crawl-stage.active').forEach(s => {
+                setStage(s.id, 'error', '오류 발생');
+            });
+            document.getElementById('btn-start-crawl').disabled = false;
+        }
+    });
+
+    evtSource.onerror = function() {
+        evtSource.close();
+        clearInterval(timerInterval);
+        appendCrawlLog('⚠ 서버 연결 끊김');
+    };
 }
 
 // === Fun Facts (데이터: /static/funfacts.json) ===

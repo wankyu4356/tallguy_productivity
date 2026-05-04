@@ -264,6 +264,17 @@ h1 {
     font-size: 13px;
     border-radius: var(--radius-sm);
 }
+.btn-primary:hover { background: var(--primary-hover); }
+
+.btn-warning {
+    background: #e67e22;
+    color: white;
+    border-color: #e67e22;
+}
+.btn-warning:hover { background: #d35400; }
+.btn-warning:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-sm { padding: 6px 12px; font-size: 13px; }
 
 /* --- Date Inputs --- */
 .date-info { margin-bottom: 16px; }
@@ -942,6 +953,188 @@ a.article-title:hover { color: var(--primary); }
 .ri-article-item:hover .ri-delete-btn { opacity: 1; }
 
 /* --- SortableJS Drag States --- */
+/* Crawl Progress Tracker */
+.crawl-timer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+}
+.crawl-timer-label {
+    font-size: 13px;
+    color: #8892b0;
+    font-weight: 500;
+}
+.crawl-timer-value {
+    font-family: "Fira Code", "SF Mono", monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: #64ffda;
+    letter-spacing: 1px;
+}
+
+.crawl-pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.crawl-stage {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: all 0.3s ease;
+    position: relative;
+}
+.crawl-stage.active {
+    border-color: var(--primary);
+    background: #f0f5ff;
+    box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.1);
+}
+.crawl-stage.active .crawl-stage-icon {
+    background: var(--primary);
+    color: white;
+    animation: pulse-icon 2s ease-in-out infinite;
+}
+.crawl-stage.done {
+    border-color: var(--success);
+    background: #f0fdf4;
+}
+.crawl-stage.done .crawl-stage-icon {
+    background: var(--success);
+    color: white;
+}
+.crawl-stage.error {
+    border-color: var(--error);
+    background: #fef2f2;
+}
+.crawl-stage.error .crawl-stage-icon {
+    background: var(--error);
+    color: white;
+}
+.crawl-stage.skipped {
+    opacity: 0.5;
+}
+
+.crawl-stage-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text-light);
+    flex-shrink: 0;
+    transition: all 0.3s;
+}
+.crawl-stage-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+@keyframes pulse-icon {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(26, 86, 219, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(26, 86, 219, 0); }
+}
+
+.crawl-stage-body {
+    flex: 1;
+    min-width: 0;
+}
+.crawl-stage-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+}
+.crawl-stage-desc {
+    font-size: 12px;
+    color: var(--text-light);
+    margin-top: 1px;
+}
+.crawl-stage-time {
+    font-family: "Fira Code", monospace;
+    font-size: 11px;
+    color: var(--text-light);
+    margin-top: 2px;
+}
+.crawl-stage.done .crawl-stage-time { color: var(--success); }
+.crawl-stage.active .crawl-stage-time { color: var(--primary); font-weight: 600; }
+
+.crawl-stage-status {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+.crawl-stage.active .crawl-stage-status::after {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+.crawl-stage.done .crawl-stage-status::after {
+    content: '\2713';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: var(--success);
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 700;
+}
+.crawl-stage.error .crawl-stage-status::after {
+    content: '\2717';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: var(--error);
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.crawl-stage-connector {
+    width: 2px;
+    height: 8px;
+    background: var(--border);
+    margin-left: 35px;
+    transition: background 0.3s;
+}
+.crawl-stage.done + .crawl-stage-connector {
+    background: var(--success);
+}
+
+.crawl-log-toggle {
+    text-align: center;
+    margin-top: 12px;
+}
+.crawl-log {
+    display: none;
+    margin-top: 8px;
+}
+.crawl-log.show {
+    display: block;
+}
+
+/* SortableJS drag states */
 .ri-ghost {
     opacity: 0.25;
     border: 2px dashed var(--primary);
