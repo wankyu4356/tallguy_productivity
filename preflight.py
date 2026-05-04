@@ -245,10 +245,21 @@ def cmd_install():
 
 
 def start_server():
-    """uvicorn 서버를 시작한다."""
+    """uvicorn 서버를 시작한다. 포트가 사용 중이면 자동으로 다른 포트 사용."""
+    import socket
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    port = 8000
+    while port < 8100:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                break
+        print(f"포트 {port} 사용 중 → 다음 포트 시도...")
+        port += 1
+
+    os.environ["PORT"] = str(port)
+    print(f"서버 시작: http://localhost:{port}")
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
 
 
 def main():
