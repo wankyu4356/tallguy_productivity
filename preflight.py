@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""더벨 News Clipper - Preflight Check
+"""딜사이트플러스 News Clipper - Preflight Check
 
 서버 실행 전 필수 환경을 사전 검증합니다.
 Usage: python preflight.py [command]
@@ -13,7 +13,7 @@ from pathlib import Path
 
 HELP_TEXT = """\
 =======================================================
-  더벨 News Clipper - 사용 가이드
+  딜사이트플러스 News Clipper - 사용 가이드
 =======================================================
 
 사용법: python preflight.py [command]
@@ -33,8 +33,8 @@ Commands:
      cp .env.example .env          (Mac/Linux)
   3. .env 파일 열어서 값 입력:
      - ANTHROPIC_API_KEY=sk-ant-...  (필수)
-     - THEBELL_ID=더벨_아이디        (선택, 자동 로그인용)
-     - THEBELL_PW=더벨_비밀번호      (선택, 자동 로그인용)
+     - DEALSITEPLUS_ID=딜사이트플러스_아이디  (선택, 자동 로그인용)
+     - DEALSITEPLUS_PW=딜사이트플러스_비밀번호  (선택, 자동 로그인용)
 
 -------------------------------------------------------
 빠른 설치:
@@ -56,7 +56,7 @@ Commands:
   [2] 필수 패키지    requirements.txt의 모든 패키지
   [3] Timezone       Asia/Seoul (Windows: tzdata 필요)
   [4] .env 파일      프로젝트 루트에 존재 여부
-  [5] 환경변수       ANTHROPIC_API_KEY (필수), THEBELL_ID/PW (선택, 없으면 수동 로그인)
+  [5] 환경변수       ANTHROPIC_API_KEY (필수), DEALSITEPLUS_ID/PW (선택, 없으면 수동 로그인)
   [6] Selenium       Chrome 자동 관리 (Selenium Manager)
 
 =======================================================
@@ -85,7 +85,7 @@ PACKAGE_IMPORT_MAP = {
 }
 
 REQUIRED_ENV_VARS = ["ANTHROPIC_API_KEY"]
-OPTIONAL_ENV_VARS = ["THEBELL_ID", "THEBELL_PW"]
+OPTIONAL_ENV_VARS = ["DEALSITEPLUS_ID", "DEALSITEPLUS_PW"]
 
 
 def print_result(name, passed, fix_hint=None):
@@ -146,7 +146,6 @@ def check_env_file():
 
 
 def check_env_vars():
-    # .env 파일 로드
     env_path = PROJECT_ROOT / ".env"
     if env_path.exists():
         try:
@@ -163,7 +162,6 @@ def check_env_vars():
             False,
             ".env 파일에 값을 입력하세요",
         )
-    # 선택 변수 안내 (실패가 아닌 정보)
     optional_missing = [v for v in OPTIONAL_ENV_VARS if not os.getenv(v)]
     if optional_missing:
         print_result(
@@ -194,7 +192,7 @@ def check_selenium():
 def run_checks():
     """모든 검증을 실행하고 결과를 반환한다."""
     print("=" * 55)
-    print("  더벨 News Clipper - Preflight Check")
+    print("  딜사이트플러스 News Clipper - Preflight Check")
     print("=" * 55)
     print()
 

@@ -55,17 +55,12 @@ async def lifespan(app: FastAPI):
     await browser_manager.start()
     logger.info("Application started")
 
-    # Auto-open browser to localhost
-    url = f"http://localhost:{settings.PORT}"
-    logger.info(f"Opening browser: {url}")
-    webbrowser.open(url)
-
     yield
     await browser_manager.stop()
     logger.info("Application stopped")
 
 
-app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
+app = FastAPI(title="딜사이트플러스 News Clipper", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
