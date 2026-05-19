@@ -193,8 +193,9 @@ async def classify_articles(
 
     client = _get_client()
 
+    content_limit = 4000 if strict else 1500
     articles_text = "\n---\n".join([
-        f"[{a.info.id}] 제목: {a.info.title}\n카테고리: {a.info.subcategory}\n내용: {a.content[:1500]}"
+        f"[{a.info.id}] 제목: {a.info.title}\n카테고리: {a.info.subcategory}\n내용: {a.content[:content_limit]}"
         for a in articles
     ])
 
@@ -283,14 +284,25 @@ async def classify_articles(
 article_order는 분류 체계 순서 + 각 섹션 내 중요도순입니다."""
 
     try:
-        response = client.messages.create(
+        create_kwargs = dict(
             model=settings.CLAUDE_MODEL,
-            max_tokens=8192,
+            max_tokens=20000 if strict else 8192,
             system=CLASSIFY_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
+        if strict:
+            create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": 8000}
+            logger.info("재분류: extended thinking 활성화 (budget=8000)")
 
-        text = response.content[0].text
+        try:
+            response = client.messages.create(**create_kwargs)
+        except (TypeError, anthropic.BadRequestError) as e:
+            logger.warning(f"extended thinking 미지원 — 일반 호출로 폴백: {e}")
+            create_kwargs.pop("thinking", None)
+            create_kwargs["max_tokens"] = 8192
+            response = client.messages.create(**create_kwargs)
+
+        text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
         json_match = _extract_json(text)
         if json_match:
             data = json.loads(json_match)
