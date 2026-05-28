@@ -10,3 +10,4 @@ output/*
 .venv/
 *.log
 .pytest_cache/
+browser_profile/

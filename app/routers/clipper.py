@@ -378,7 +378,7 @@ async def _reclassify_task(session_id: str):
     try:
         articles = session.articles_with_content
         logger.info(f"{task_stage} 시작 (strict mode) | session={session_id[:8]} | articles={len(articles)}개")
-        session.progress_messages.append("AI 재분류 중 (엄밀 모드)...")
+        session.progress_messages.append("AI 재분류 중 (심층 분석 모드 — 시간이 더 걸릴 수 있습니다)...")
 
         # Identify issues from previous classification
         prev_issues = ""
