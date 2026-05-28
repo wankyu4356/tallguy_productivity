@@ -55,20 +55,30 @@ async def lifespan(app: FastAPI):
     await browser_manager.start()
     logger.info("Application started")
 
-    # Auto-open browser to localhost
-    url = f"http://localhost:{settings.PORT}"
-    logger.info(f"Opening browser: {url}")
-    webbrowser.open(url)
-
     yield
     await browser_manager.stop()
     logger.info("Application stopped")
 
 
-app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
+app = FastAPI(title="딜사이트플러스 News Clipper", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+# Python 3.14: Jinja2 LRUCache creates cache_key = (name, globals_dict) which is
+# unhashable. This no-op cache bypasses the issue entirely.
+class _NoOpCache:
+    def get(self, key, default=None):
+        return default
+    def __setitem__(self, key, value):
+        pass
+    def __contains__(self, key):
+        return False
+    def clear(self):
+        pass
+
+templates.env.cache = _NoOpCache()  # type: ignore[assignment]
 
 app.include_router(health.router)
 app.include_router(clipper.router)
@@ -78,8 +88,7 @@ app.include_router(clipper.router)
 async def index(request: Request):
     from app.services.business_day import get_clipping_window
     date_from, date_to = get_clipping_window()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "date_from": date_from,
         "date_to": date_to,
         "date_from_str": date_from.strftime("%Y-%m-%dT%H:%M"),

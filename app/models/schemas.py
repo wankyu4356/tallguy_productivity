@@ -54,6 +54,8 @@ class ClassificationSubItem(BaseModel):
 class ClassifiedOutput(BaseModel):
     categories: list[ClassificationCategory] = []
     article_order: list[str] = []  # ordered article IDs
+    is_fallback: bool = False  # True if LLM classification failed
+    fallback_reason: str = ""  # 실패 원인
 
 
 class SessionStatus(str, Enum):

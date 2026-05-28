@@ -88,8 +88,10 @@ async def _crawl_task(session_id: str):
         ctx = await bm.new_context(headless=False)
         logger.info(f"{task_stage} 브라우저 컨텍스트 생성 완료 | elapsed={_time.time()-t0:.1f}s")
 
+        # Manual login — opens visible browser for user to log in
+        session.progress_messages.append("브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         # Step 2: Login
-        session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
+        session.progress_messages.append("브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         t_login = _time.time()
         login_ok = await login(ctx)
         login_elapsed = _time.time() - t_login
@@ -97,6 +99,7 @@ async def _crawl_task(session_id: str):
             error_msg = f"더벨 로그인 타임아웃 (5분). 브라우저에서 로그인하세요. (소요: {login_elapsed:.0f}초)"
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             session.status = SessionStatus.ERROR
+            session.error = "딜사이트플러스 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
             session.error = error_msg
             session.progress_messages.append(f"⚠ {error_msg}")
             return
@@ -286,7 +289,7 @@ async def _generate_task(session_id: str):
             session.progress_messages.append(msg)
 
         # Step 1: Fetch articles and generate individual PDFs
-        on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
+        on_progress("Step 1/5: 브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         ctx = await bm.new_context(headless=False)
 
         from app.services.crawler import login
@@ -296,6 +299,7 @@ async def _generate_task(session_id: str):
         if not login_ok:
             error_msg = f"더벨 로그인 타임아웃 (소요: {login_elapsed:.0f}초)"
             session.status = SessionStatus.ERROR
+            session.error = "딜사이트플러스 로그인 타임아웃."
             session.error = error_msg
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             on_progress(f"⚠ {error_msg}")
@@ -440,12 +444,15 @@ async def _finalize_task(session_id: str):
 
         # Step 3: Merge PDFs
         on_progress("Step 3/5: PDF 합본 중...")
+        merged_pdf_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.pdf"
         t_step = _time.time()
         merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         merge_pdfs(classification, articles_with_content, merged_pdf_path, on_progress)
         logger.info(f"{task_stage} Step 3 PDF 합본 완료 | elapsed={_time.time()-t_step:.1f}s")
 
         # Step 4: Generate DOCX
+        on_progress("Step 4/5: DOCX 목차 생성 중...")
+        docx_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.docx"
         on_progress("Step 4/5: DOCX 목차 생성 ���...")
         t_step = _time.time()
         docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
@@ -455,6 +462,7 @@ async def _finalize_task(session_id: str):
 
         # Step 5: Package ZIP
         on_progress("Step 5/5: ZIP 파일 생성 중...")
+        zip_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.zip"
         t_step = _time.time()
         zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
         create_zip(articles_with_content, merged_pdf_path, docx_path, zip_path, date_str)
@@ -520,13 +528,56 @@ async def get_classification(session_id: str):
     if not session.classification:
         raise HTTPException(400, "Classification not ready")
 
+    import re as _re
     articles_map = {a.info.id: a for a in session.articles_with_content}
+    # 숫자/hex만 추출한 역매핑 (LLM이 괄호/공백 포함해서 반환할 때 대비)
+    id_by_digits = {}
+    for a in session.articles_with_content:
+        digits = _re.sub(r'[^0-9a-fA-F]', '', a.info.id)
+        if digits:
+            id_by_digits[digits] = a.info.id
+
+    def resolve_id(aid: str) -> str | None:
+        """LLM이 반환한 ID를 실제 article ID로 변환."""
+        aid = str(aid).strip().strip('"').strip("'")
+        if aid in articles_map:
+            return aid
+        cleaned = aid.strip('[]').strip()
+        if cleaned in articles_map:
+            return cleaned
+        digits = _re.sub(r'[^0-9a-fA-F]', '', aid)
+        if digits and digits in id_by_digits:
+            return id_by_digits[digits]
+        for vid in articles_map:
+            if vid in aid or aid in vid:
+                return vid
+        return None
+
+    # 디버그: ID 매칭 로그
+    all_cls_ids = []
+    for cat in session.classification.categories:
+        all_cls_ids.extend(cat.articles)
+        for sub in cat.subcategories:
+            all_cls_ids.extend(sub.articles)
+            for si in sub.sub_items:
+                all_cls_ids.extend(si.articles)
+
+    resolved = [resolve_id(aid) for aid in all_cls_ids]
+    matched_count = sum(1 for r in resolved if r)
+    unmatched_raw = [aid for aid, r in zip(all_cls_ids, resolved) if not r]
+    if unmatched_raw:
+        logger.warning(
+            f"Classification ID mismatch: {len(unmatched_raw)}/{len(all_cls_ids)} unmatched. "
+            f"Unmatched: {unmatched_raw[:5]}. "
+            f"Available: {list(articles_map.keys())[:5]}"
+        )
+    logger.info(f"Classification ID resolve: {matched_count}/{len(all_cls_ids)} matched")
 
     def article_detail(aid: str):
-        a = articles_map.get(aid)
-        if not a:
+        real_id = resolve_id(aid)
+        if not real_id:
             return None
-        # Build a short summary: first 150 chars of content
+        a = articles_map[real_id]
         summary = a.info.summary or ""
         if not summary and a.content:
             summary = a.content[:200].replace("\n", " ").strip()
@@ -541,28 +592,83 @@ async def get_classification(session_id: str):
         }
 
     tree = []
+    total_articles = 0
     for cat in session.classification.categories:
+        cat_articles = [d for aid in cat.articles if (d := article_detail(aid))]
         cat_data = {
             "name": cat.name,
-            "articles": [article_detail(aid) for aid in cat.articles if article_detail(aid)],
+            "articles": cat_articles,
             "subcategories": [],
         }
+        total_articles += len(cat_articles)
         for sub in cat.subcategories:
+            sub_articles = [d for aid in sub.articles if (d := article_detail(aid))]
             sub_data = {
                 "name": sub.name,
-                "articles": [article_detail(aid) for aid in sub.articles if article_detail(aid)],
+                "articles": sub_articles,
                 "sub_items": [],
             }
+            total_articles += len(sub_articles)
             for si in sub.sub_items:
+                si_articles = [d for aid in si.articles if (d := article_detail(aid))]
                 si_data = {
                     "name": si.name,
-                    "articles": [article_detail(aid) for aid in si.articles if article_detail(aid)],
+                    "articles": si_articles,
                 }
+                total_articles += len(si_articles)
                 sub_data["sub_items"].append(si_data)
             cat_data["subcategories"].append(sub_data)
         tree.append(cat_data)
 
-    return {"status": session.status.value, "tree": tree}
+    logger.info(f"Classification tree: {total_articles} articles resolved out of {len(all_cls_ids)} classified IDs")
+
+    # 안전장치: 분류된 기사가 0개면 모든 기사를 첫 번째 카테고리에 직접 배치
+    if total_articles == 0 and session.articles_with_content:
+        logger.warning(f"No articles in classification tree! Injecting all {len(session.articles_with_content)} articles")
+        all_article_details = []
+        for a in session.articles_with_content:
+            summary = a.info.summary or ""
+            if not summary and a.content:
+                summary = a.content[:200].replace("\n", " ").strip()
+                if len(a.content) > 200:
+                    summary += "..."
+            all_article_details.append({
+                "id": a.info.id,
+                "title": a.info.title,
+                "summary": summary,
+                "url": a.info.url,
+                "category": a.info.category,
+            })
+        total_articles = len(all_article_details)
+
+        # 기존 트리 구조가 있으면 첫 카테고리에 넣기
+        if tree:
+            # subcategory가 있으면 마지막 서브카테고리(기타)에
+            if tree[0].get("subcategories"):
+                target_sub = tree[0]["subcategories"][-1]
+                if target_sub.get("sub_items"):
+                    target_sub["sub_items"][-1]["articles"] = all_article_details
+                else:
+                    target_sub["articles"] = all_article_details
+            else:
+                tree[0]["articles"] = all_article_details
+        else:
+            tree = [{"name": "전체 기사", "articles": all_article_details, "subcategories": []}]
+
+    return {
+        "status": session.status.value,
+        "tree": tree,
+        "is_fallback": session.classification.is_fallback if session.classification else False,
+        "fallback_reason": session.classification.fallback_reason if session.classification else "",
+        "debug": {
+            "classified_ids_total": len(all_cls_ids),
+            "matched": matched_count,
+            "unmatched_sample": unmatched_raw[:10],
+            "available_ids_sample": list(articles_map.keys())[:10],
+            "articles_with_content_count": len(session.articles_with_content),
+            "total_in_tree": total_articles,
+        }
+    }
 
 
 class ConfirmIndexRequest(BaseModel):
@@ -688,8 +794,7 @@ async def review_page(request: Request, session_id: str):
     # Build recommendation map
     rec_map = {r.article_id: r for r in session.recommendations}
 
-    return templates.TemplateResponse("review.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "review.html", {
         "session": session,
         "categories": categories,
         "rec_map": rec_map,
@@ -703,8 +808,7 @@ async def review_index_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse("review_index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "review_index.html", {
         "session": session,
     })
 
@@ -716,8 +820,7 @@ async def progress_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse("progress.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "progress.html", {
         "session": session,
     })
 
@@ -729,7 +832,6 @@ async def result_page(request: Request, session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    return templates.TemplateResponse("result.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "result.html", {
         "session": session,
     })

@@ -3,16 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}더벨 News Clipper{% endblock %}</title>
+    <title>{% block title %}딜사이트플러스 News Clipper{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
     {% block head %}{% endblock %}
 </head>
 <body>
     <header>
         <nav>
-            <a href="/" class="logo">더벨 News Clipper</a>
+            <a href="/" class="logo">
+                <span style="margin-right: 6px;">&#x2728;</span>딜사이트플러스 News Clipper
+            </a>
             <div class="nav-right">
-                <a href="/health" target="_blank" class="btn-sm">환경 점검</a>
+                <a href="/health" target="_blank">
+                    <span style="margin-right: 4px;">&#x1F4E1;</span> 환경 점검
+                </a>
             </div>
         </nav>
     </header>
@@ -20,7 +27,7 @@
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>TheBell Daily News Clipping Tool</p>
+        <p style="opacity: 0.6;">Powered by AI &middot; DealSitePlus Daily News Clipping Tool</p>
     </footer>
     <script src="/static/js/app.js"></script>
     {% block scripts %}{% endblock %}
