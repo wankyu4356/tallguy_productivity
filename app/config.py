@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     CRAWL_TIMEOUT_MS: int = 30000
     NAVIGATION_TIMEOUT_MS: int = 30000
     MAX_CONCURRENT_PAGES: int = 3
+    BROWSER_PROFILE_DIR: Path = Path("./browser_profile")
 
     # Cleanup
     CLEANUP_HOURS: int = 24
