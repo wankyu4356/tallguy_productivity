@@ -130,19 +130,27 @@ async def recommend_articles(
 
     client = _get_client()
 
-    articles_text = "\n".join([
-        f"[{a.id}] {a.title} (카테고리: {a.subcategory})\n  요약: {a.summary or '없음'}"
-        for a in articles
-    ])
+    # Split articles into batches to avoid exceeding max_tokens.
+    # Each recommendation ≈ 30-50 tokens; 4096 tokens fits ~80 articles safely.
+    batch_size = 60
+    all_recommendations: list[ArticleRecommendation] = []
 
-    count_instruction = ""
-    if max_count is not None:
-        count_instruction = f"\n\n**중요: 전체 {len(articles)}개 기사 중 약 {max_count}개 내외로 추천해주세요. 가장 유의미한 기사를 우선적으로 선택하세요.**"
+    for batch_start in range(0, len(articles), batch_size):
+        batch = articles[batch_start:batch_start + batch_size]
+        batch_text = "\n".join([
+            f"[{a.id}] {a.title} (카테고리: {a.subcategory})\n  요약: {a.summary or '없음'}"
+            for a in batch
+        ])
 
-    prompt = f"""다음 기사 목록에서 PE 투자 전문가에게 유의미한 기사를 추천해주세요.{count_instruction}
+        batch_count_instruction = ""
+        if max_count is not None:
+            batch_ratio = max_count * len(batch) / len(articles)
+            batch_count_instruction = f"\n\n**중요: 이 묶음 {len(batch)}개 기사 중 약 {int(batch_ratio)}개 내외로 추천해주세요.**"
+
+        batch_prompt = f"""다음 기사 목록에서 PE 투자 전문가에게 유의미한 기사를 추천해주세요.{batch_count_instruction}
 
 기사 목록:
-{articles_text}
+{batch_text}
 
 다음 JSON 형식으로 응답해주세요:
 {{
@@ -155,27 +163,41 @@ async def recommend_articles(
   ]
 }}"""
 
-    try:
-        response = client.messages.create(
-            model=settings.CLAUDE_MODEL,
-            max_tokens=4096,
-            system=RECOMMEND_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        try:
+            response = client.messages.create(
+                model=settings.CLAUDE_MODEL,
+                max_tokens=8192,
+                system=RECOMMEND_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": batch_prompt}],
+            )
 
-        text = response.content[0].text
-        # Extract JSON from response
-        json_match = _extract_json(text)
-        if json_match:
-            data = json.loads(json_match)
-            return [
-                ArticleRecommendation(**r)
-                for r in data.get("recommendations", [])
-            ]
-    except Exception as e:
-        logger.error(f"LLM recommendation failed: {e}", exc_info=True)
+            text = response.content[0].text
+            json_match = _extract_json(text)
+            if json_match:
+                data = json.loads(json_match)
+                batch_recs = [
+                    ArticleRecommendation(**r)
+                    for r in data.get("recommendations", [])
+                ]
+                all_recommendations.extend(batch_recs)
+                rec_count = sum(1 for r in batch_recs if r.recommended)
+                logger.info(f"Recommend batch {batch_start // batch_size + 1}: {rec_count}/{len(batch_recs)} recommended")
+            else:
+                logger.warning(f"Recommend batch {batch_start // batch_size + 1}: JSON extraction failed, marking batch for manual selection")
+                all_recommendations.extend([
+                    ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요")
+                    for a in batch
+                ])
+        except Exception as e:
+            logger.error(f"LLM recommendation batch failed: {e}", exc_info=True)
+            all_recommendations.extend([
+                ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요")
+                for a in batch
+            ])
 
-    # Fallback: recommend all
+    if all_recommendations:
+        return all_recommendations
+
     return [ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요") for a in articles]
 
 
