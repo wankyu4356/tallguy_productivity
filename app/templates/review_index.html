@@ -48,93 +48,10 @@ let treeData = null;
 const allSortables = [];
 
 async function loadClassification() {
-    const container = document.getElementById('classification-tree');
-    try {
-        const res = await fetch(`/api/classification/${SESSION_ID}`);
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
-                <h3 style="color:var(--error);">분류 데이터를 불러올 수 없습니다</h3>
-                <p>${err.detail || '서버 오류 (' + res.status + ')'}</p>
-                <button class="btn btn-primary" onclick="loadClassification()" style="margin-top:12px;">다시 시도</button>
-            </div>`;
-            return;
-        }
-        const data = await res.json();
-        treeData = data.tree;
-
-        // AI 분류 실패 시 경고 배너 표시
-        if (data.is_fallback) {
-            const reason = data.fallback_reason || '알 수 없는 오류';
-            const banner = document.createElement('div');
-            banner.className = 'card';
-            banner.style.cssText = 'background:linear-gradient(135deg,#fff3cd,#ffeaa7); border-left:4px solid #f39c12; padding:20px; margin-bottom:20px;';
-            banner.innerHTML = `
-                <div style="display:flex; align-items:flex-start; gap:12px;">
-                    <span style="font-size:28px;">⚠️</span>
-                    <div>
-                        <h3 style="margin:0 0 6px; color:#856404;">AI 분류 실패 — 모든 기사가 "기타"에 배치되었습니다</h3>
-                        <p style="margin:0 0 8px; color:#856404; font-size:14px;">
-                            AI 분류가 정상 작동하지 않아 모든 기사가 Deal > 기타에 임시 배치되었습니다.<br>
-                            기사를 드래그하여 올바른 카테고리로 <strong>수동 분류</strong>해주세요.
-                        </p>
-                        <details style="font-size:12px; color:#856404;">
-                            <summary style="cursor:pointer; font-weight:600;">실패 원인 보기</summary>
-                            <pre style="background:rgba(0,0,0,0.05); padding:8px; border-radius:6px; margin-top:6px; white-space:pre-wrap; font-size:12px;">${reason}</pre>
-                        </details>
-                    </div>
-                </div>`;
-            container.parentNode.insertBefore(banner, container);
-        }
-
-        if (!treeData || !treeData.length) {
-            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
-                <h3>분류된 기사가 없습니다</h3>
-                <p>AI 분류 결과가 비어있습니다. 이전 단계로 돌아가 다시 시도해주세요.</p>
-                <a href="/" class="btn btn-primary" style="margin-top:12px;">처음으로 돌아가기</a>
-            </div>`;
-            return;
-        }
-        // 기사가 하나도 매칭 안 되는 경우 체크
-        let totalArticles = 0;
-        treeData.forEach(cat => {
-            totalArticles += (cat.articles || []).length;
-            (cat.subcategories || []).forEach(sub => {
-                totalArticles += (sub.articles || []).length;
-                (sub.sub_items || []).forEach(si => {
-                    totalArticles += (si.articles || []).length;
-                });
-            });
-        });
-        if (totalArticles === 0) {
-            const dbg = data.debug || {};
-            container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
-                <h3 style="color:var(--error);">기사 매칭 오류</h3>
-                <p>분류는 완료되었으나 기사 데이터와 매칭되지 않았습니다.</p>
-                <details style="text-align:left; margin:16px auto; max-width:500px; font-size:13px; color:#666;">
-                    <summary style="cursor:pointer; font-weight:600;">디버그 정보 보기</summary>
-                    <pre style="background:#f5f5f5; padding:12px; border-radius:8px; overflow-x:auto; margin-top:8px; white-space:pre-wrap;">분류된 ID 수: ${dbg.classified_ids_total || '?'}
-매칭 성공: ${dbg.matched || 0}
-articles_with_content: ${dbg.articles_with_content_count || '?'}
-
-매칭 실패 ID (샘플):
-${(dbg.unmatched_sample || []).join('\\n') || '(없음)'}
-
-실제 기사 ID (샘플):
-${(dbg.available_ids_sample || []).join('\\n') || '(없음)'}</pre>
-                </details>
-                <a href="/" class="btn btn-primary" style="margin-top:12px;">처음으로 돌아가기</a>
-            </div>`;
-            return;
-        }
-        renderTree(treeData);
-    } catch (e) {
-        container.innerHTML = `<div class="card" style="text-align:center; padding:40px;">
-            <h3 style="color:var(--error);">네트워크 오류</h3>
-            <p>${e.message}</p>
-            <button class="btn btn-primary" onclick="loadClassification()" style="margin-top:12px;">다시 시도</button>
-        </div>`;
-    }
+    const res = await fetch(`/api/classification/${SESSION_ID}`);
+    const data = await res.json();
+    treeData = data.tree;
+    renderTree(treeData);
 }
 
 function renderTree(tree) {

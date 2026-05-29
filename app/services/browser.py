@@ -45,16 +45,6 @@ class BrowserManager:
         opts.add_argument("--disable-gpu")
         opts.add_argument("--disable-dev-shm-usage")
 
-        # Persistent user profile so the user's "Allow" choice for thebell's
-        # external launcher (and other site permissions) survives restarts.
-        profile_dir = settings.BROWSER_PROFILE_DIR.resolve()
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        opts.add_argument(f"--user-data-dir={profile_dir}")
-        opts.add_argument("--profile-directory=Default")
-        opts.add_argument("--no-first-run")
-        opts.add_argument("--no-default-browser-check")
-        logger.info(f"Edge profile: {profile_dir}")
-
         # Anti-bot detection
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
