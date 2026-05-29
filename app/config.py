@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # Claude API
     ANTHROPIC_API_KEY: str = ""
-    CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
+    CLAUDE_MODEL: str = "claude-sonnet-4-6-20250627"
 
     # App settings
     OUTPUT_DIR: Path = Path("./output")

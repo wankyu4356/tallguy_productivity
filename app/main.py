@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application stopped")
 
 
-app = FastAPI(title="딜사이트플러스 News Clipper", lifespan=lifespan)
+app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
