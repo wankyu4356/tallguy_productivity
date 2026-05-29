@@ -88,10 +88,8 @@ async def _crawl_task(session_id: str):
         ctx = await bm.new_context(headless=False)
         logger.info(f"{task_stage} 브라우저 컨텍스트 생성 완료 | elapsed={_time.time()-t0:.1f}s")
 
-        # Manual login — opens visible browser for user to log in
-        session.progress_messages.append("브라우저에서 딜사이트플러스 로그인을 완료하세요...")
         # Step 2: Login
-        session.progress_messages.append("브라우저에서 딜사이트플러스 로그인을 완료하세요...")
+        session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
         t_login = _time.time()
         login_ok = await login(ctx)
         login_elapsed = _time.time() - t_login
@@ -99,7 +97,6 @@ async def _crawl_task(session_id: str):
             error_msg = f"더벨 로그인 타임아웃 (5분). 브라우저에서 로그인하세요. (소요: {login_elapsed:.0f}초)"
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             session.status = SessionStatus.ERROR
-            session.error = "딜사이트플러스 로그인 타임아웃. 브라우저에서 5분 내에 로그인하세요."
             session.error = error_msg
             session.progress_messages.append(f"⚠ {error_msg}")
             return
@@ -289,7 +286,7 @@ async def _generate_task(session_id: str):
             session.progress_messages.append(msg)
 
         # Step 1: Fetch articles and generate individual PDFs
-        on_progress("Step 1/5: 브라우저에서 딜사이트플러스 로그인을 완료하세요...")
+        on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
         ctx = await bm.new_context(headless=False)
 
         from app.services.crawler import login
@@ -299,7 +296,7 @@ async def _generate_task(session_id: str):
         if not login_ok:
             error_msg = f"더벨 로그인 타임아웃 (소요: {login_elapsed:.0f}초)"
             session.status = SessionStatus.ERROR
-            session.error = "딜사이트플러스 로그인 타임아웃."
+            session.error = "더벨 로그인 타임아웃."
             session.error = error_msg
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             on_progress(f"⚠ {error_msg}")
@@ -444,7 +441,7 @@ async def _finalize_task(session_id: str):
 
         # Step 3: Merge PDFs
         on_progress("Step 3/5: PDF 합본 중...")
-        merged_pdf_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.pdf"
+        merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         t_step = _time.time()
         merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         merge_pdfs(classification, articles_with_content, merged_pdf_path, on_progress)
@@ -452,7 +449,7 @@ async def _finalize_task(session_id: str):
 
         # Step 4: Generate DOCX
         on_progress("Step 4/5: DOCX 목차 생성 중...")
-        docx_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.docx"
+        docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
         on_progress("Step 4/5: DOCX 목차 생성 ���...")
         t_step = _time.time()
         docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
@@ -462,7 +459,7 @@ async def _finalize_task(session_id: str):
 
         # Step 5: Package ZIP
         on_progress("Step 5/5: ZIP 파일 생성 중...")
-        zip_path = session_dir / f"(딜사이트플러스) Daily News Clipping {date_str}.zip"
+        zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
         t_step = _time.time()
         zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
         create_zip(articles_with_content, merged_pdf_path, docx_path, zip_path, date_str)
