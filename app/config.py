@@ -2,17 +2,11 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
-# Current default model. Retired model IDs found in an existing .env are
-# transparently upgraded to this so the app keeps working without the user
-# having to hand-edit their .env file.
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 
-# Retired/removed model IDs → current replacement. The Anthropic API returns
-# 404 not_found_error for these, which previously broke recommendation and
-# classification entirely.
 _RETIRED_MODELS = {
     "claude-sonnet-4-20250514": DEFAULT_CLAUDE_MODEL,
-    "claude-sonnet-4-6-20250627": DEFAULT_CLAUDE_MODEL,  # never a valid dated id
+    "claude-sonnet-4-6-20250627": DEFAULT_CLAUDE_MODEL,
     "claude-3-5-sonnet-20241022": DEFAULT_CLAUDE_MODEL,
     "claude-3-5-sonnet-20240620": DEFAULT_CLAUDE_MODEL,
     "claude-3-sonnet-20240229": DEFAULT_CLAUDE_MODEL,

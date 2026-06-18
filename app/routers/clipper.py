@@ -253,7 +253,7 @@ async def start_generate(session_id: str, background_tasks: BackgroundTasks):
 async def _generate_task(session_id: str):
     """Background task: fetch articles + AI classification, then pause for review."""
     import time as _time
-    from app.services.article_fetcher import fetch_articles
+    from app.services.article_fetcher import fetch_articles_concurrent
     from app.services.llm_classifier import classify_articles
 
     sessions = _get_sessions()
@@ -285,7 +285,7 @@ async def _generate_task(session_id: str):
         def on_progress(msg: str):
             session.progress_messages.append(msg)
 
-        # Step 1: Fetch articles and generate individual PDFs
+        # Step 1: Login to get auth cookies, then fetch concurrently
         on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
         ctx = await bm.new_context(headless=False)
 
@@ -296,24 +296,30 @@ async def _generate_task(session_id: str):
         if not login_ok:
             error_msg = f"더벨 로그인 타임아웃 (소요: {login_elapsed:.0f}초)"
             session.status = SessionStatus.ERROR
-            session.error = "더벨 로그인 타임아웃."
             session.error = error_msg
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             on_progress(f"⚠ {error_msg}")
             return
-        on_progress(f"로그인 성공! ({login_elapsed:.0f}초) 기사 본문 수집 및 PDF 생성 중...")
-        logger.info(f"{task_stage} 로그인 성공 | elapsed={login_elapsed:.1f}s")
+
+        # Extract cookies and close the visible browser
+        cookies = await asyncio.to_thread(lambda: ctx.driver.get_cookies())
+        await ctx.close()
+        ctx = None
+        on_progress(
+            f"로그인 성공! ({login_elapsed:.0f}초) "
+            f"기사 {len(selected)}개 동시 수집 중 (workers={min(settings.MAX_CONCURRENT_PAGES, len(selected))})..."
+        )
+        logger.info(f"{task_stage} 로그인 성공, 쿠키 추출 | cookies={len(cookies)} | elapsed={login_elapsed:.1f}s")
 
         t_fetch = _time.time()
-        articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
+        articles_with_content = await fetch_articles_concurrent(
+            bm, selected, pdfs_dir, on_progress, cookies=cookies,
+        )
         fetch_elapsed = _time.time() - t_fetch
         session.articles_with_content = articles_with_content
         logger.info(
             f"{task_stage} 기사 수집 완료 | articles={len(articles_with_content)} | elapsed={fetch_elapsed:.1f}s"
         )
-
-        await ctx.close()
-        ctx = None
 
         # Step 2: Classify with LLM
         on_progress("Step 2/5: AI 분류 중...")

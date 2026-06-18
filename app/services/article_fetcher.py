@@ -317,6 +317,34 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
     return result
 
 
+THEBELL_BASE = "https://www.thebell.co.kr"
+
+
+def _set_cookies_sync(driver, cookies: list[dict]) -> int:
+    """Navigate to TheBell domain and set authentication cookies."""
+    try:
+        driver.get(THEBELL_BASE)
+    except Exception:
+        pass
+    time.sleep(0.3)
+
+    set_count = 0
+    for cookie in cookies:
+        clean = {}
+        for k in ("name", "value", "domain", "path", "secure", "httpOnly"):
+            if k in cookie:
+                clean[k] = cookie[k]
+        if not clean.get("name"):
+            continue
+        try:
+            driver.add_cookie(clean)
+            set_count += 1
+        except Exception:
+            pass
+    logger.info(f"Worker 쿠키 설정: {set_count}/{len(cookies)}")
+    return set_count
+
+
 def _fetch_articles_sync(
     driver,
     articles: list[ArticleInfo],
@@ -362,15 +390,6 @@ def _fetch_articles_sync(
     return results
 
 
-async def fetch_article(
-    context: SeleniumContext,
-    article: ArticleInfo,
-    output_dir: Path,
-) -> ArticleWithContent:
-    """Fetch a single article: extract content and save as PDF."""
-    return await asyncio.to_thread(_fetch_article_sync, context.driver, article, output_dir)
-
-
 async def fetch_articles(
     context: SeleniumContext,
     articles: list[ArticleInfo],
@@ -382,3 +401,101 @@ async def fetch_articles(
     return await asyncio.to_thread(
         _fetch_articles_sync, context.driver, articles, output_dir, on_progress
     )
+
+
+async def fetch_articles_concurrent(
+    bm,
+    articles: list[ArticleInfo],
+    output_dir: Path,
+    on_progress: callable | None = None,
+    cookies: list[dict] | None = None,
+) -> list[ArticleWithContent]:
+    """Fetch articles concurrently using multiple headless browser workers."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not articles:
+        return []
+
+    n_workers = min(settings.MAX_CONCURRENT_PAGES, len(articles))
+    logger.info(
+        f"기사 동시 수집 시작 | articles={len(articles)} | workers={n_workers}"
+    )
+
+    queue: asyncio.Queue[tuple[int, ArticleInfo]] = asyncio.Queue()
+    for i, article in enumerate(articles):
+        await queue.put((i, article))
+
+    results: list[ArticleWithContent | None] = [None] * len(articles)
+    lock = asyncio.Lock()
+    counters = {"done": 0, "pdf_ok": 0, "pdf_fail": 0}
+    t0 = time.time()
+
+    async def worker(worker_id: int):
+        ctx = await bm.new_context(headless=True, use_profile=False)
+        try:
+            ctx.driver.set_page_load_timeout(15)
+            if cookies:
+                await asyncio.to_thread(_set_cookies_sync, ctx.driver, cookies)
+
+            while True:
+                try:
+                    idx, article = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                async with lock:
+                    counters["done"] += 1
+                    current = counters["done"]
+
+                if on_progress:
+                    on_progress(
+                        f"기사 수집 중: {current}/{len(articles)} - "
+                        f"{article.title[:30]}..."
+                    )
+
+                try:
+                    result = await asyncio.to_thread(
+                        _fetch_article_sync, ctx.driver, article, output_dir
+                    )
+                    results[idx] = result
+                    async with lock:
+                        if result.pdf_path:
+                            counters["pdf_ok"] += 1
+                        else:
+                            counters["pdf_fail"] += 1
+                except (InvalidSessionIdException, WebDriverException) as e:
+                    logger.error(
+                        f"Worker {worker_id} 브라우저 오류 | "
+                        f"article={article.title[:40]} | {type(e).__name__}"
+                    )
+                    results[idx] = ArticleWithContent(info=article)
+                    break
+                except Exception as e:
+                    logger.error(
+                        f"Worker {worker_id} 오류 | "
+                        f"article={article.title[:40]} | "
+                        f"{type(e).__name__}: {str(e)[:200]}"
+                    )
+                    results[idx] = ArticleWithContent(info=article)
+        finally:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+
+    workers = [worker(i) for i in range(n_workers)]
+    await asyncio.gather(*workers)
+
+    elapsed = time.time() - t0
+    valid = [r for r in results if r is not None]
+    logger.info(
+        f"기사 동시 수집 완료 | {len(valid)}/{len(articles)}개 | "
+        f"workers={n_workers} | PDF성공={counters['pdf_ok']} "
+        f"PDF실패={counters['pdf_fail']} | {elapsed:.1f}초"
+    )
+    if on_progress:
+        on_progress(
+            f"기사 수집 완료: {len(valid)}/{len(articles)}개 ({elapsed:.0f}초)"
+        )
+
+    return valid

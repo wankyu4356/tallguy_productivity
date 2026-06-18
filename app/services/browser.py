@@ -91,22 +91,29 @@ class BrowserManager:
         self._started = False
         logger.info("BrowserManager stopped")
 
-    async def new_context(self, headless: bool | None = None) -> SeleniumContext:
+    async def new_context(
+        self,
+        headless: bool | None = None,
+        use_profile: bool = True,
+    ) -> SeleniumContext:
         """Create a new browser context.
 
         Args:
             headless: Override headless setting. None uses config default.
                       False forces visible GUI (for manual/auto login).
+            use_profile: Use persistent browser profile. False for lightweight
+                         worker contexts (e.g. concurrent article fetching).
         """
         if not self._started:
             raise RuntimeError("BrowserManager not started. Call start() first.")
         eff_headless = settings.BROWSER_HEADLESS if headless is None else headless
-        driver = await asyncio.to_thread(self._create_driver, eff_headless, True)
+        driver = await asyncio.to_thread(self._create_driver, eff_headless, use_profile)
         driver.set_page_load_timeout(settings.NAVIGATION_TIMEOUT_MS / 1000)
         return SeleniumContext(driver)
 
     def _create_driver(self, headless: bool, use_profile: bool) -> webdriver.Edge:
         opts = Options()
+        opts.page_load_strategy = "eager"
         for arg in self._base_args:
             opts.add_argument(arg)
         for key, val in self._experimental.items():
