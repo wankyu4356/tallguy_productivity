@@ -212,26 +212,53 @@ def _log_browser_state(driver, context: str):
 
 
 def _close_extra_windows(driver, keep_window: str):
-    """Close all windows except the one to keep."""
-    t0 = time.time()
-    handles = driver.window_handles
+    """Close real thebell popups opened by article/print pages, keeping keep_window.
+
+    IMPORTANT: Edge spawns a background MSN new-tab prerender window
+    (ntp.msn.com/edge/ntp?...&prerender=1) that CANNOT be closed via
+    driver.close() — it hangs for 20 seconds and then throws
+    "failed to close window in 20 seconds". Attempting to close it on every
+    article wasted ~20-40s per article. We must skip any non-thebell window
+    and only close genuine thebell popups.
+    """
+    try:
+        handles = driver.window_handles
+    except Exception:
+        return
     if len(handles) <= 1:
         return
-    extra = [w for w in handles if w != keep_window]
-    for w in extra:
+
+    for w in handles:
+        if w == keep_window:
+            continue
         try:
             driver.switch_to.window(w)
             url = ""
             try:
                 url = driver.current_url
             except Exception:
-                pass
-            logger.debug(f"[close_win] 닫기 시작 | url={url}")
-            driver.close()
-            logger.debug(f"[close_win] 닫기 완료 | +{time.time()-t0:.1f}s")
+                url = ""
+            # Only close real thebell popups. Edge-internal / prerendered
+            # new-tab windows (ntp.msn.com, edge://, about:blank) hang on
+            # close — leave them in the background, they don't affect PDF gen.
+            if "thebell" in url.lower():
+                logger.debug(f"[close_win] 더벨 팝업 닫기 | url={url[:70]}")
+                driver.close()
+            else:
+                logger.debug(f"[close_win] Edge 내부창 건너뜀 (닫기 시 20초 멈춤) | url={url[:70]}")
         except Exception as e:
-            logger.debug(f"[close_win] 닫기 실패 | {type(e).__name__}: {str(e)[:100]}")
-    driver.switch_to.window(keep_window)
+            logger.debug(f"[close_win] 처리 실패 | {type(e).__name__}: {str(e)[:80]}")
+
+    # Always return focus to the main window
+    try:
+        driver.switch_to.window(keep_window)
+    except Exception:
+        try:
+            remaining = driver.window_handles
+            if remaining:
+                driver.switch_to.window(remaining[0])
+        except Exception:
+            pass
 
 
 def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> ArticleWithContent:
