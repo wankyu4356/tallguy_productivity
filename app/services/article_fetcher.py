@@ -53,8 +53,9 @@ def _block_print_dialog(driver):
             {"source": _BLOCK_PRINT_SCRIPT},
         )
         _cdp_script_id = result.get("identifier")
-    except Exception:
-        pass
+        logger.debug(f"[print_block] CDP 주입 성공 | id={_cdp_script_id}")
+    except Exception as e:
+        logger.warning(f"[print_block] CDP 주입 실패 — window.print() 차단 불가! | {type(e).__name__}: {e}")
 
 
 def _unblock_print_dialog(driver):
@@ -79,6 +80,7 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
     2. Click print button on the page (handles JS popups)
     3. Return False if no print page found
     """
+    t0 = time.time()
     original_window = driver.current_window_handle
 
     # Strategy 1: URL manipulation for TheBell (safest — try first)
@@ -96,19 +98,28 @@ def _navigate_to_print_page(driver, article_url: str) -> bool:
                 import re as _re
                 print_url = _re.sub(_re.escape(old), new, article_url, flags=_re.IGNORECASE)
             try:
-                # Block window.print() BEFORE navigating — print pages auto-call it
-                # which opens edge://print/ and blocks for ~22 seconds
+                logger.debug(f"[print T+{time.time()-t0:.1f}s] print 차단 주입")
                 _block_print_dialog(driver)
+                logger.debug(f"[print T+{time.time()-t0:.1f}s] 프린트 페이지 로드 시작 | url={print_url}")
                 driver.get(print_url)
+                logger.debug(
+                    f"[print T+{time.time()-t0:.1f}s] 프린트 페이지 로드 완료 | "
+                    f"windows={len(driver.window_handles)} | url={driver.current_url}"
+                )
                 time.sleep(0.5)
-                # Clean up: remove the injected script so it doesn't affect other pages
                 _unblock_print_dialog(driver)
                 if not _is_error_page_simple(driver):
+                    logger.debug(f"[print T+{time.time()-t0:.1f}s] 프린트 페이지 사용 OK")
                     return True
                 # Error page — go back to article
+                logger.debug(f"[print T+{time.time()-t0:.1f}s] 에러 페이지 → 기사로 복귀")
                 driver.get(article_url)
                 time.sleep(0.5)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    f"[print T+{time.time()-t0:.1f}s] 프린트 페이지 예외 | "
+                    f"{type(e).__name__}: {str(e)[:200]}"
+                )
                 _unblock_print_dialog(driver)
                 driver.get(article_url)
                 time.sleep(0.5)
@@ -202,35 +213,60 @@ def _log_browser_state(driver, context: str):
 
 def _close_extra_windows(driver, keep_window: str):
     """Close all windows except the one to keep."""
-    for w in driver.window_handles:
-        if w != keep_window:
+    t0 = time.time()
+    handles = driver.window_handles
+    if len(handles) <= 1:
+        return
+    extra = [w for w in handles if w != keep_window]
+    for w in extra:
+        try:
+            driver.switch_to.window(w)
+            url = ""
             try:
-                driver.switch_to.window(w)
-                driver.close()
+                url = driver.current_url
             except Exception:
                 pass
+            logger.debug(f"[close_win] 닫기 시작 | url={url}")
+            driver.close()
+            logger.debug(f"[close_win] 닫기 완료 | +{time.time()-t0:.1f}s")
+        except Exception as e:
+            logger.debug(f"[close_win] 닫기 실패 | {type(e).__name__}: {str(e)[:100]}")
     driver.switch_to.window(keep_window)
 
 
 def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> ArticleWithContent:
     """Fetch a single article: extract content and save as PDF (synchronous)."""
+    t0 = time.time()
     result = ArticleWithContent(info=article)
     original_window = driver.current_window_handle
 
     # Clean up stale popup windows from previous articles
     if len(driver.window_handles) > 1:
+        logger.debug(
+            f"[T+{time.time()-t0:.1f}s] 팝업 정리 시작 | windows={len(driver.window_handles)} | "
+            f"{article.title[:30]}"
+        )
         _close_extra_windows(driver, original_window)
+        logger.debug(f"[T+{time.time()-t0:.1f}s] 팝업 정리 완료")
 
     try:
         driver.set_page_load_timeout(settings.CRAWL_TIMEOUT_MS / 1000)
-        # Block window.print() before any page navigation to prevent
-        # edge://print/ popup that blocks for ~22 seconds
+
+        logger.debug(f"[T+{time.time()-t0:.1f}s] print 차단 주입")
         _block_print_dialog(driver)
+
+        logger.debug(f"[T+{time.time()-t0:.1f}s] 기사 페이지 로드 시작 | url={article.url}")
         driver.get(article.url)
+        logger.debug(
+            f"[T+{time.time()-t0:.1f}s] 기사 페이지 로드 완료 | "
+            f"windows={len(driver.window_handles)} | url={driver.current_url}"
+        )
+
         time.sleep(0.5)
         _unblock_print_dialog(driver)
 
         # Extract article content
+        logger.debug(f"[T+{time.time()-t0:.1f}s] 본문 추출 시작")
         content_selectors = [
             '.article_content', '.articleContent', '.news_content',
             '.view_content', '.article_body', '.newsContent',
@@ -239,54 +275,73 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         ]
 
         content = ""
+        matched_sel = ""
         for sel in content_selectors:
             els = driver.find_elements(By.CSS_SELECTOR, sel)
             if els:
                 content = els[0].text.strip()
                 if content:
+                    matched_sel = sel
                     break
 
         if not content:
             body_els = driver.find_elements(By.CSS_SELECTOR, "body")
             if body_els:
                 content = body_els[0].text.strip()[:3000]
+                matched_sel = "body(fallback)"
 
         result.content = content[:5000]
+        logger.debug(
+            f"[T+{time.time()-t0:.1f}s] 본문 추출 완료 | "
+            f"selector={matched_sel} | len={len(content)}"
+        )
 
         # Generate PDF — try print-friendly page first
         filename = sanitize_filename(article.title) + ".pdf"
         pdf_path = output_dir / filename
 
+        logger.debug(f"[T+{time.time()-t0:.1f}s] 프린트 페이지 이동 시작")
         used_print_page = _navigate_to_print_page(driver, article.url)
-        if used_print_page:
-            logger.debug(f"프린트 페이지에서 PDF 생성 | url={driver.current_url} | article={article.title[:40]}")
+        logger.debug(
+            f"[T+{time.time()-t0:.1f}s] 프린트 페이지 이동 완료 | "
+            f"used_print={used_print_page} | windows={len(driver.window_handles)} | "
+            f"url={driver.current_url}"
+        )
 
         # Generate PDF using Chrome DevTools Protocol
-        logger.debug(f"CDP printToPDF 호출 | url={driver.current_url} | windows={len(driver.window_handles)}")
+        logger.debug(f"[T+{time.time()-t0:.1f}s] CDP printToPDF 시작")
         pdf_result = driver.execute_cdp_cmd("Page.printToPDF", PDF_PARAMS)
         pdf_data = base64.b64decode(pdf_result["data"])
         with open(pdf_path, "wb") as f:
             f.write(pdf_data)
 
         result.pdf_path = str(pdf_path)
-        logger.info(f"Saved PDF: {filename}")
+        logger.debug(f"[T+{time.time()-t0:.1f}s] PDF 저장 완료 | {filename}")
+        logger.info(f"Saved PDF ({time.time()-t0:.1f}s): {filename}")
 
         # Clean up: close popup windows and return to original window
+        if len(driver.window_handles) > 1:
+            logger.debug(
+                f"[T+{time.time()-t0:.1f}s] 최종 팝업 정리 | "
+                f"windows={len(driver.window_handles)}"
+            )
         _close_extra_windows(driver, original_window)
+        logger.debug(f"[T+{time.time()-t0:.1f}s] 기사 처리 완료")
 
     except InvalidSessionIdException as e:
-        # Browser session is dead — cannot continue fetching any articles
         _log_browser_state(driver, "InvalidSessionId")
         logger.error(
-            f"브라우저 세션 사망 | article={article.title[:50]} | url={article.url} | {e}",
+            f"[T+{time.time()-t0:.1f}s] 브라우저 세션 사망 | "
+            f"article={article.title[:50]} | url={article.url} | {e}",
             exc_info=True,
         )
         raise
     except TimeoutException as e:
         _log_browser_state(driver, "Timeout")
         logger.error(
-            f"페이지 로드 타임아웃 | article={article.title[:50]} | "
-            f"url={article.url} | timeout={settings.CRAWL_TIMEOUT_MS}ms",
+            f"[T+{time.time()-t0:.1f}s] 페이지 로드 타임아웃 | "
+            f"article={article.title[:50]} | url={article.url} | "
+            f"timeout={settings.CRAWL_TIMEOUT_MS}ms",
             exc_info=True,
         )
         _close_extra_windows(driver, original_window)
@@ -299,7 +354,8 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         )
         _log_browser_state(driver, "SessionDeath" if is_session_dead else "WebDriverError")
         logger.error(
-            f"WebDriver 오류 | article={article.title[:50]} | url={article.url} | "
+            f"[T+{time.time()-t0:.1f}s] WebDriver 오류 | "
+            f"article={article.title[:50]} | url={article.url} | "
             f"session_dead={is_session_dead}",
             exc_info=True,
         )
@@ -308,7 +364,8 @@ def _fetch_article_sync(driver, article: ArticleInfo, output_dir: Path) -> Artic
         _close_extra_windows(driver, original_window)
     except Exception as e:
         logger.error(
-            f"기사 수집 오류 | article={article.title[:50]} | url={article.url} | "
+            f"[T+{time.time()-t0:.1f}s] 기사 수집 오류 | "
+            f"article={article.title[:50]} | url={article.url} | "
             f"type={type(e).__name__}",
             exc_info=True,
         )
