@@ -27,11 +27,17 @@ function selectAll(checked) {
 }
 
 function updateSelectionCount() {
-    const total = document.querySelectorAll('.article-checkbox').length;
-    const selected = document.querySelectorAll('.article-checkbox:checked').length;
+    // Articles appear in both tabs (recommend + manual), so deduplicate by value.
+    const all = document.querySelectorAll('.article-checkbox');
+    const uniqueIds = new Set();
+    const checkedIds = new Set();
+    all.forEach(cb => {
+        uniqueIds.add(cb.value);
+        if (cb.checked) checkedIds.add(cb.value);
+    });
     const countEl = document.getElementById('selection-count');
     if (countEl) {
-        countEl.textContent = `${selected} / ${total} 선택됨`;
+        countEl.textContent = `${checkedIds.size} / ${uniqueIds.size} 선택됨`;
     }
 }
 

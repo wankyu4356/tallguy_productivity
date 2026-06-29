@@ -183,6 +183,9 @@ def _find_login_form_and_fill(driver, user_id: str, password: str) -> bool:
         # Modal form fallback
         "form#modal_login_form input#id",
         "form#modal_login_form input[name='id']",
+        # Generic last-resort fallbacks
+        "input[type='text']",
+        "input[type='email']",
     ]
 
     pw_selectors = [
@@ -192,6 +195,8 @@ def _find_login_form_and_fill(driver, user_id: str, password: str) -> bool:
         "input[name='pw'][type='password']",
         "form#modal_login_form input#pw",
         "form#modal_login_form input[name='pw']",
+        # Generic last-resort fallback
+        "input[type='password']",
     ]
 
     submit_selectors = [
@@ -348,14 +353,14 @@ def _auto_login_sync(driver) -> bool:
     # Wait for login to process
     time.sleep(1)
 
-    # Check for security module blocking (보안 프로그램 설치 요구)
+    # Check whether thebell redirected us to a security-program INSTALL page.
+    # NOTE: the normal login page always shows "보안프로그램이 설치되어 있습니다",
+    # so matching that text falsely flags every login as blocked. Only a real
+    # redirect to an install page (URL) is a reliable block signal.
     try:
-        page_source = driver.page_source
-        security_indicators = ["보안프로그램", "보안 프로그램", "install.asp", "CERTTEXT"]
-        for ind in security_indicators:
-            if ind in page_source:
-                logger.warning(f"{stage} 보안 프로그램 설치 요구 감지 | match='{ind}' | elapsed={time.time()-t0:.1f}s")
-                return False
+        if "install" in driver.current_url.lower():
+            logger.warning(f"{stage} 보안 프로그램 설치 페이지로 리다이렉트 | url={driver.current_url} | elapsed={time.time()-t0:.1f}s")
+            return False
     except Exception as e:
         logger.warning(f"{stage} 보안 프로그램 확인 중 오류 | error={type(e).__name__}: {e}")
 
