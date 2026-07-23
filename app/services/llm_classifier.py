@@ -166,12 +166,17 @@ async def recommend_articles(
         try:
             response = client.messages.create(
                 model=settings.CLAUDE_MODEL,
-                max_tokens=8192,
+                max_tokens=16384,
                 system=RECOMMEND_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": batch_prompt}],
             )
 
-            text = response.content[0].text
+            # Newer models (Sonnet 5+) run adaptive thinking by default, so the
+            # first content block can be a ThinkingBlock — find the text block.
+            text = next(
+                (b.text for b in response.content if getattr(b, "type", None) == "text"),
+                "",
+            )
             json_match = _extract_json(text)
             if json_match:
                 data = json.loads(json_match)
@@ -414,13 +419,15 @@ article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중
                 messages=[{"role": "user", "content": prompt}],
             )
             if strict:
-                create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": 8000}
-                logger.info("재분류: extended thinking 활성화 (budget=8000)")
+                # budget_tokens is removed on Sonnet 5+ (400 error) —
+                # adaptive thinking is the supported way to enable deeper reasoning.
+                create_kwargs["thinking"] = {"type": "adaptive"}
+                logger.info("재분류: adaptive thinking 활성화")
 
             try:
                 response = client.messages.create(**create_kwargs)
             except (TypeError, anthropic.BadRequestError) as e:
-                logger.warning(f"extended thinking 미지원 — 일반 호출로 폴백: {e}")
+                logger.warning(f"thinking 설정 미지원 — 일반 호출로 폴백: {e}")
                 create_kwargs.pop("thinking", None)
                 create_kwargs["max_tokens"] = 16384
                 response = client.messages.create(**create_kwargs)
