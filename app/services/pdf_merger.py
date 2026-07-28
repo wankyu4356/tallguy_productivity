@@ -356,42 +356,157 @@ def _build_index_pdf(
 # ---------------------------------------------------------------------------
 
 _COPYRIGHT_PATTERNS = [
-    _re.compile(r"저작권자.*thebell", _re.IGNORECASE),
-    _re.compile(r"무단\s*전재.*재배포.*금지"),
+    _re.compile(r"저작권자.*?thebell", _re.IGNORECASE | _re.DOTALL),
+    _re.compile(r"무단\s*전재.*?재배포.*?금지", _re.DOTALL),
     _re.compile(r"AI\s*학습\s*이용\s*금지"),
     _re.compile(r"자본시장\s*미디어"),
+    _re.compile(r"thebell", _re.IGNORECASE),
 ]
 
+# Letters/digits only — punctuation, whitespace and symbols don't count as content.
+_MEANINGFUL_CHARS = _re.compile(r"[0-9A-Za-z가-힣ㄱ-ㆎ一-鿿]")
 
-def _is_copyright_only_page(page) -> bool:
-    """Return True if the page contains only a copyright notice and no real content."""
+# A page needs at least this many real characters (after the copyright notice is
+# removed) to count as content. The copyright line alone yields 0.
+_MIN_MEANINGFUL_CHARS = 20
+
+# Safety net against text-extraction failures: a page whose drawing instructions
+# are larger than this is treated as real content even if no text was extracted.
+_MAX_JUNK_CONTENT_BYTES = 6000
+
+# Images smaller than this (in pixels) are treated as logos/spacers, not content.
+_MIN_CONTENT_IMAGE_PIXELS = 10_000  # e.g. 100x100
+
+
+def _page_has_content_image(page) -> bool:
+    """True if the page embeds an image big enough to be real content."""
+    try:
+        resources = page.get("/Resources")
+        if not resources:
+            return False
+        xobjects = resources.get_object().get("/XObject")
+        if not xobjects:
+            return False
+        xobjects = xobjects.get_object()
+        for name in xobjects:
+            try:
+                obj = xobjects[name].get_object()
+                if obj.get("/Subtype") != "/Image":
+                    continue
+                width = int(obj.get("/Width", 0) or 0)
+                height = int(obj.get("/Height", 0) or 0)
+                if width * height >= _MIN_CONTENT_IMAGE_PIXELS:
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def _page_content_bytes(page) -> int:
+    """Size of the page's drawing instructions. -1 when it can't be determined."""
+    try:
+        contents = page.get_contents()
+        if contents is None:
+            return 0
+        data = contents.get_data()
+        return len(data) if data else 0
+    except Exception:
+        return -1
+
+
+def _page_junk_stats(page) -> tuple[int, int, bool]:
+    """Return (meaningful_chars, content_bytes, has_image) for diagnostics."""
     try:
         text = page.extract_text() or ""
     except Exception:
+        text = ""
+
+    residual = text
+    for pattern in _COPYRIGHT_PATTERNS:
+        residual = pattern.sub(" ", residual)
+
+    meaningful = len(_MEANINGFUL_CHARS.findall(residual))
+    return meaningful, _page_content_bytes(page), _page_has_content_image(page)
+
+
+def _is_junk_page(page) -> bool:
+    """True for blank pages and for pages carrying only the thebell copyright line.
+
+    thebell's print pages routinely spill a trailing page that holds nothing but
+    the copyright notice. Those pages are dropped from both the individual and
+    the merged PDF.
+    """
+    meaningful, content_bytes, has_image = _page_junk_stats(page)
+
+    if meaningful >= _MIN_MEANINGFUL_CHARS:
         return False
-
-    stripped = text.strip()
-    if not stripped:
-        # Blank page — also remove
-        return True
-
-    # If the text is short and matches copyright patterns, it's junk
-    if len(stripped) > 200:
+    if has_image:
         return False
-
-    has_copyright = any(p.search(stripped) for p in _COPYRIGHT_PATTERNS)
-    if not has_copyright:
+    # Text extraction can fail on some embedded fonts; if the page still carries
+    # a lot of drawing instructions, assume it has content and keep it.
+    if content_bytes > _MAX_JUNK_CONTENT_BYTES:
         return False
+    return True
 
-    # Remove the copyright text and see if anything meaningful remains
-    cleaned = stripped
-    for p in _COPYRIGHT_PATTERNS:
-        cleaned = p.sub("", cleaned)
-    # Remove common punctuation / whitespace
-    cleaned = _re.sub(r"[<>ⓒ'\s,.\-–—_©®]+", "", cleaned)
 
-    # If almost nothing left after removing copyright → junk page
-    return len(cleaned) < 30
+def _compress_writer(writer: PdfWriter) -> None:
+    """Merge duplicate objects and drop unreferenced ones before writing.
+
+    pypdf copies a page's resources every time `add_page` is called, so merging
+    N article PDFs that embed the same Korean web fonts stores those fonts N
+    times over. De-duplicating them shrinks the merged file dramatically.
+    """
+    if not hasattr(writer, "compress_identical_objects"):
+        return
+    try:
+        writer.compress_identical_objects()
+    except Exception as e:
+        logger.warning(f"PDF 객체 중복 제거 실패 (계속 진행): {type(e).__name__}: {e}")
+
+
+def _strip_junk_pages(pdf_path: Path) -> tuple[int, int]:
+    """Rewrite `pdf_path` without blank / copyright-only pages.
+
+    Returns (kept_pages, dropped_pages). On any failure the file is left
+    untouched and its unchanged page count is reported, so the caller's page
+    accounting always matches what is actually on disk.
+    """
+    try:
+        reader = PdfReader(str(pdf_path))
+        total = len(reader.pages)
+        keep = [p for p in reader.pages if not _is_junk_page(p)]
+
+        if not keep:
+            # Everything looked like junk — trust the source over the heuristic
+            # rather than emitting an empty PDF.
+            logger.warning(
+                f"전 페이지가 빈 페이지로 판정되어 원본 유지: {pdf_path.name} ({total}p)"
+            )
+            return total, 0
+
+        if len(keep) == total:
+            return total, 0
+
+        writer = PdfWriter()
+        for page in keep:
+            writer.add_page(page)
+        _compress_writer(writer)
+
+        tmp_path = pdf_path.with_name(pdf_path.name + ".tmp")
+        with open(tmp_path, "wb") as f:
+            writer.write(f)
+        tmp_path.replace(pdf_path)
+
+        return len(keep), total - len(keep)
+
+    except Exception as e:
+        logger.warning(f"빈 페이지 정리 실패 ({pdf_path.name}): {type(e).__name__}: {e}")
+        try:
+            return len(PdfReader(str(pdf_path)).pages), 0
+        except Exception:
+            return 0, 0
 
 
 # ---------------------------------------------------------------------------
@@ -445,17 +560,41 @@ def merge_pdfs(
         logger.warning("No PDFs to merge")
         return output_path
 
-    # Pre-read page counts (excluding copyright-only pages)
+    # Strip blank / copyright-only pages from each article PDF up front, so the
+    # files on disk (which also go into the ZIP) match the page counts used to
+    # number the index. Articles left with no pages are dropped entirely — a TOC
+    # entry with no destination would render as page 0 and link to the wrong
+    # article.
+    if on_progress:
+        on_progress("빈 페이지 정리 중...")
+
     article_page_counts: dict[str, int] = {}
+    kept_articles: list[ArticleWithContent] = []
+    total_dropped = 0
+
     for a in ordered_articles:
-        try:
-            reader = PdfReader(a.pdf_path)
-            real_pages = sum(
-                1 for p in reader.pages if not _is_copyright_only_page(p)
+        kept, dropped = _strip_junk_pages(Path(a.pdf_path))
+        total_dropped += dropped
+        if dropped:
+            logger.info(
+                f"빈 페이지 {dropped}개 제거: {a.info.title[:40]} ({kept + dropped}p → {kept}p)"
             )
-            article_page_counts[a.info.id] = real_pages
-        except Exception as e:
-            logger.error(f"Error reading PDF {a.pdf_path}: {e}")
+        if kept <= 0:
+            logger.warning(f"페이지가 없어 합본에서 제외: {a.info.title[:40]}")
+            continue
+        article_page_counts[a.info.id] = kept
+        kept_articles.append(a)
+
+    ordered_articles = kept_articles
+    if not ordered_articles:
+        logger.warning("No PDFs to merge after cleanup")
+        return output_path
+
+    logger.info(
+        f"빈 페이지 정리 완료 | 제거={total_dropped}개 | 기사={len(ordered_articles)}개"
+    )
+    if on_progress and total_dropped:
+        on_progress(f"빈 페이지 {total_dropped}개 제거됨")
 
     # First pass: rough page offsets (without index pages)
     page_offsets: dict[str, int] = {}
@@ -505,9 +644,9 @@ def merge_pdfs(
             first_page_idx = len(writer.pages)
             article_first_page[a.info.id] = first_page_idx
 
+            # Junk pages were already stripped from the file above, so every
+            # page here is counted in article_page_counts / page_offsets_final.
             for page in reader.pages:
-                if _is_copyright_only_page(page):
-                    continue
                 writer.add_page(page)
 
             writer.add_outline_item(a.info.title, first_page_idx)
@@ -541,11 +680,25 @@ def merge_pdfs(
         except Exception as e:
             logger.debug(f"Failed to add TOC link for '{aid}': {e}")
 
+    # De-duplicate the fonts/images that every thebell page embeds before
+    # writing — without this the merged file carries one copy per page.
+    if on_progress:
+        on_progress("PDF 용량 최적화 중...")
+    _compress_writer(writer)
+
     # Write merged PDF
     with open(output_path, "wb") as f:
         writer.write(f)
 
+    size_mb = output_path.stat().st_size / 1_000_000 if output_path.exists() else 0
+    logger.info(
+        f"PDF 합본 완료 | 기사={len(ordered_articles)}개 | "
+        f"페이지={len(writer.pages)}p | 용량={size_mb:.1f}MB"
+    )
     if on_progress:
-        on_progress(f"PDF 합본 완료: {len(ordered_articles)}개 기사")
+        on_progress(
+            f"PDF 합본 완료: {len(ordered_articles)}개 기사, "
+            f"{len(writer.pages)}페이지 ({size_mb:.1f}MB)"
+        )
 
     return output_path
