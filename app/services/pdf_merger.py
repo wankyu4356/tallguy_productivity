@@ -21,6 +21,7 @@ import re as _re
 
 from app.models.schemas import ClassifiedOutput, ArticleWithContent
 from app.utils.logging import get_logger
+from app.utils.paths import resource_path
 
 logger = get_logger(__name__)
 
@@ -44,7 +45,7 @@ def _register_fonts() -> tuple[str, str]:
         return "KFont", "KFontBold"
 
     # Bundled fonts directory (ships with the app — always available)
-    _BUNDLED = Path(__file__).resolve().parent.parent / "static" / "fonts"
+    _BUNDLED = resource_path("app", "static", "fonts")
 
     font_configs = [
         # --- Bundled fonts (guaranteed to exist) ---

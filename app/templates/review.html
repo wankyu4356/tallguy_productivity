@@ -2,30 +2,39 @@
 {% block title %}기사 선택 - 더벨 News Clipper{% endblock %}
 {% block content %}
 <div class="container">
-    <h1>기사 선택</h1>
-    <p>수집 기간: {{ session.date_from.strftime('%Y-%m-%d %H:%M') }} ~ {{ session.date_to.strftime('%Y-%m-%d %H:%M') }}</p>
-    <p>총 {{ session.articles | length }}개 기사 수집됨</p>
+    <h1>어떤 기사를 담을까요?</h1>
+    <p class="page-sub">
+        {{ session.date_from.strftime('%Y.%m.%d %H:%M') }} ~ {{ session.date_to.strftime('%Y.%m.%d %H:%M') }}
+        · 총 <strong>{{ session.articles | length }}개</strong> 수집됨
+    </p>
 
     <div class="card">
         <div class="tabs">
-            <div class="tab active" data-tab="recommend" onclick="switchTab('recommend')">LLM 추천</div>
-            <div class="tab" data-tab="manual" onclick="switchTab('manual')">전체 목록 (수동)</div>
+            <div class="tab active" data-tab="recommend" onclick="switchTab('recommend')">AI 추천</div>
+            <div class="tab" data-tab="manual" onclick="switchTab('manual')">전체 목록</div>
         </div>
 
         {% if session.status.value == 'crawl_done' and not session.recommendations %}
-        <div id="recommend-action" style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <label for="max-count" style="font-size: 14px; font-weight: 500;">추천 기사 수:</label>
-            <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
-                   placeholder="예: 20" style="width: 80px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px;">
-            <span style="font-size: 13px; color: var(--text-light);">/ {{ session.articles | length }}개</span>
-            <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
-            <span id="recommend-status" style="color: var(--text-light);"></span>
+        <div id="recommend-action" class="card" style="background: var(--blue-soft); box-shadow: none; margin-bottom: 18px;">
+            <h3 style="margin-bottom: 4px;">AI에게 추천받기</h3>
+            <p style="margin: 0 0 14px; font-size: 13.5px; color: var(--text-2);">
+                PE 투자 관점에서 의미 있는 기사를 골라 드립니다.
+            </p>
+            <div class="row">
+                <label for="max-count" class="field-label" style="margin: 0;">추천 개수</label>
+                <input type="number" id="max-count" min="1" max="{{ session.articles | length }}"
+                       placeholder="60" style="width: 92px;">
+                <span style="font-size: 13px; color: var(--text-3);">/ {{ session.articles | length }}개</span>
+                <span class="spacer"></span>
+                <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
+            </div>
+            <div id="recommend-status" style="margin-top: 10px; font-size: 13.5px; color: var(--blue-strong);"></div>
         </div>
         {% endif %}
 
         <div class="select-actions">
-            <button class="btn btn-sm" onclick="selectAll(true)">전체 선택</button>
-            <button class="btn btn-sm" onclick="selectAll(false)">전체 해제</button>
+            <button class="btn btn-sm btn-ghost" onclick="selectAll(true)">전체 선택</button>
+            <button class="btn btn-sm btn-ghost" onclick="selectAll(false)">전체 해제</button>
             <span id="selection-count" style="margin-left: 12px; font-weight: 500;">0 / {{ session.articles | length }} 선택됨</span>
         </div>
 
@@ -63,7 +72,7 @@
             </div>
             {% endfor %}
             {% else %}
-            <p style="color: var(--text-light);">AI 추천을 요청하거나, '전체 목록' 탭에서 수동으로 선택하세요.</p>
+            <div class="empty"><div class="empty-icon">🔎</div>아직 추천 결과가 없어요.<br>위에서 AI 추천을 받거나 '전체 목록'에서 직접 고르세요.</div>
             {% endif %}
         </div>
 
@@ -97,11 +106,9 @@
         </div>
     </div>
 
-    <div class="card" style="display: flex; justify-content: center; gap: 12px;">
-        <a href="/" class="btn" style="font-size: 16px; padding: 12px 32px;">처음으로</a>
-        <button class="btn btn-primary" onclick="confirmSelection()" style="font-size: 16px; padding: 12px 32px;">
-            선택 확정 및 PDF 생성
-        </button>
+    <div class="action-bar">
+        <a href="/" class="btn">처음으로</a>
+        <button class="btn btn-primary" onclick="confirmSelection()">선택 확정하고 PDF 만들기</button>
     </div>
 </div>
 {% endblock %}

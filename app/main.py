@@ -6,15 +6,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.models.schemas import SessionState
-from app.routers import health, clipper
+from app.routers import health, clipper, setup as setup_router
 from app.services.browser import BrowserManager
 from app.utils.logging import setup_logging, get_logger
+from app.utils.paths import app_dir, resource_path
+from app.utils.templating import create_templates
 
 logger = get_logger(__name__)
 
@@ -40,15 +41,13 @@ def cleanup_old_sessions():
 async def lifespan(app: FastAPI):
     setup_logging(settings.LOG_LEVEL)
 
-    errors = settings.validate_required()
-    if errors:
-        for err in errors:
-            logger.error(f"Configuration error: {err}")
-        raise SystemExit(
-            "필수 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.\n"
-            "Run 'python preflight.py' for detailed diagnostics."
-        )
+    # A missing API key is recoverable: the app boots and sends the user to the
+    # /setup page instead of dying before the window opens (which, in the
+    # packaged executable, would just flash a console and vanish).
+    for err in settings.validate_required():
+        logger.warning(f"Configuration incomplete: {err} — /setup 페이지로 안내합니다.")
 
+    logger.info(f"작업 폴더: {app_dir()}")
     settings.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cleanup_old_sessions()
 
@@ -66,30 +65,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="더벨 News Clipper", lifespan=lifespan)
 
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
-
-
-# Python 3.14: Jinja2 LRUCache creates cache_key = (name, globals_dict) which is
-# unhashable. This no-op cache bypasses the issue entirely.
-class _NoOpCache:
-    def get(self, key, default=None):
-        return default
-    def __setitem__(self, key, value):
-        pass
-    def __contains__(self, key):
-        return False
-    def clear(self):
-        pass
-
-templates.env.cache = _NoOpCache()  # type: ignore[assignment]
+app.mount(
+    "/static",
+    StaticFiles(directory=resource_path("app", "static")),
+    name="static",
+)
+templates = create_templates()
 
 app.include_router(health.router)
+app.include_router(setup_router.router)
 app.include_router(clipper.router)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if not settings.is_configured:
+        return RedirectResponse("/setup", status_code=307)
+
     from app.services.business_day import get_clipping_window
     date_from, date_to = get_clipping_window()
     return templates.TemplateResponse(request, "index.html", {

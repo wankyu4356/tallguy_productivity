@@ -1,0 +1,5 @@
+# Build-time only — needed to produce the standalone executable.
+# Runtime dependencies live in requirements.txt.
+-r requirements.txt
+pyinstaller>=6.0
+pillow>=10.0        # regenerates app/static/img/thebell.ico from the logo

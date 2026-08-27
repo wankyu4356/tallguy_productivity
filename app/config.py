@@ -1,6 +1,9 @@
 from pathlib import Path
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+from app.utils.paths import data_path, env_file
 
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
 
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
         return _RETIRED_MODELS.get(v, v)
 
     # App settings
-    OUTPUT_DIR: Path = Path("./output")
+    OUTPUT_DIR: Path = data_path("output")
     LOG_LEVEL: str = "INFO"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -41,12 +44,16 @@ class Settings(BaseSettings):
     CRAWL_TIMEOUT_MS: int = 30000
     NAVIGATION_TIMEOUT_MS: int = 30000
     MAX_CONCURRENT_PAGES: int = 3
-    BROWSER_PROFILE_DIR: Path = Path("./browser_profile")
+    BROWSER_PROFILE_DIR: Path = data_path("browser_profile")
 
     # Cleanup
     CLEANUP_HOURS: int = 24
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": str(env_file()),
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
     def validate_required(self) -> list[str]:
         errors = []
@@ -58,5 +65,22 @@ class Settings(BaseSettings):
     def has_thebell_credentials(self) -> bool:
         return bool(self.THEBELL_ID and self.THEBELL_PW)
 
+    @property
+    def is_configured(self) -> bool:
+        """True once the app has everything it needs to run."""
+        return bool(self.ANTHROPIC_API_KEY)
+
 
 settings = Settings()
+
+
+def reload_settings() -> Settings:
+    """Re-read .env after the setup page writes it, updating `settings` in place.
+
+    Callers hold a reference to the module-level `settings` object, so the
+    values are copied onto it rather than rebinding the name.
+    """
+    fresh = Settings()
+    for name in fresh.__class__.model_fields:
+        object.__setattr__(settings, name, getattr(fresh, name))
+    return settings

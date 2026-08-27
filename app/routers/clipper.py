@@ -6,19 +6,19 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.config import settings
 from app.models.schemas import SessionState, SessionStatus, ArticleWithContent
 from app.services.business_day import get_clipping_window
 from app.utils.logging import get_logger
+from app.utils.templating import create_templates
 
 KST = ZoneInfo("Asia/Seoul")
 
 logger = get_logger(__name__)
 router = APIRouter()
-templates = Jinja2Templates(directory=Path(__file__).parent.parent / "templates")
+templates = create_templates()
 
 
 def _get_sessions() -> dict[str, SessionState]:

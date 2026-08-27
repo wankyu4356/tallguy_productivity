@@ -1,23 +1,24 @@
 {% extends "base.html" %}
 {% block title %}결과 - 더벨 News Clipper{% endblock %}
 {% block content %}
-<div class="container">
-    <h1>클리핑 완료</h1>
-
+<div class="container container--narrow">
     {% if session.status.value == 'done' %}
-    <div class="card download-area">
-        <h2>다운로드</h2>
-        <p style="margin-bottom: 20px; color: var(--text-light);">
-            {{ session.selected_ids | length }}개 기사가 클리핑되었습니다.
-        </p>
-        <a href="/api/download/{{ session.session_id }}" class="btn btn-primary">
+    <div class="card">
+        <div class="result-hero">
+            <div class="result-check">✓</div>
+            <h1 style="font-size: 24px; margin: 0;">클리핑이 완료됐어요</h1>
+            <p style="margin: 0; color: var(--text-2);">
+                총 <strong>{{ session.selected_ids | length }}개</strong> 기사를 정리했습니다.
+            </p>
+        </div>
+        <a href="/api/download/{{ session.session_id }}" class="btn btn-primary btn-lg btn-block">
             ZIP 파일 다운로드
         </a>
     </div>
 
     {% if session.classification %}
     <div class="card">
-        <h2>분류 구조</h2>
+        <h2>이렇게 분류했어요</h2>
         <ul class="classification-tree">
             {% for cat in session.classification.categories %}
             <li class="cat-1">{{ loop.index }}. {{ cat.name }}
@@ -84,18 +85,18 @@
 
     {% elif session.status.value == 'error' %}
     <div class="card">
-        <h2 style="color: var(--error);">오류 발생</h2>
-        <p>{{ session.error }}</p>
+        <h1 style="font-size: 22px;">문제가 생겼어요</h1>
+        <p style="color: var(--red);">{{ session.error }}</p>
     </div>
     {% else %}
     <div class="card">
-        <p>아직 진행 중입니다. <a href="/progress/{{ session.session_id }}">진행 상황 확인</a></p>
+        <div class="empty">아직 진행 중이에요.<br><a href="/progress/{{ session.session_id }}">진행 상황 보기</a></div>
     </div>
     {% endif %}
 
-    <div style="display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;">
-        <a href="/review-index/{{ session.session_id }}" class="btn" onclick="return goBack(event, 'review_ready')">Index 검수로 돌아가기</a>
-        <a href="/review/{{ session.session_id }}" class="btn" onclick="return goBack(event, 'crawl_done')">기사 선택으로 돌아가기</a>
+    <div class="action-bar">
+        <a href="/review-index/{{ session.session_id }}" class="btn btn-sm" onclick="return goBack(event, 'review_ready')">목차 검수</a>
+        <a href="/review/{{ session.session_id }}" class="btn btn-sm" onclick="return goBack(event, 'crawl_done')">기사 선택</a>
         <a href="/" class="btn btn-primary">새 클리핑 시작</a>
     </div>
 </div>

@@ -2,17 +2,25 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#F2F4F6">
     <title>{% block title %}더벨 News Clipper{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260529">
+    <link rel="icon" type="image/png" href="/static/img/thebell-logo.png">
+    <link rel="apple-touch-icon" href="/static/img/thebell-logo.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260723">
     {% block head %}{% endblock %}
 </head>
 <body>
     <header>
         <nav>
-            <a href="/" class="logo">더벨 News Clipper</a>
+            <a href="/" class="logo">
+                <img src="/static/img/thebell-logo.png" alt="thebell">
+                <span>News Clipper</span>
+                <span class="logo-sub">Daily Clipping</span>
+            </a>
             <div class="nav-right">
-                <a href="/health" target="_blank" class="btn-sm">환경 점검</a>
+                <a href="/setup" class="btn btn-sm btn-ghost">설정</a>
+                <a href="/health" target="_blank" class="btn btn-sm btn-ghost">환경 점검</a>
             </div>
         </nav>
     </header>
@@ -20,9 +28,9 @@
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>TheBell Daily News Clipping Tool</p>
+        <p>더벨 Daily News Clipping · Gateway to Capital Markets</p>
     </footer>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=20260723"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

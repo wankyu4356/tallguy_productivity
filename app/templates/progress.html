@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}진행 상황 - 더벨 News Clipper{% endblock %}
 {% block content %}
-<div class="container">
-    <h1>PDF 생성 진행 상황</h1>
+<div class="container container--narrow">
+    <h1>열심히 만들고 있어요</h1>
+    <p class="page-sub">기사 본문을 모으고 AI가 분류하는 중입니다. 창을 닫지 말고 기다려 주세요.</p>
 
     <div class="card">
-        <h2>현재 상태: <span id="current-status">{{ session.status.value }}</span></h2>
+        <div class="card-head">
+            <h2>진행 단계</h2>
+            <span class="badge badge-{{ session.status.value }}" id="current-status">{{ session.status.value }}</span>
+        </div>
 
         <ul class="progress-steps" id="progress-steps">
             <li class="progress-step step-pending" id="step-fetch">
@@ -40,10 +44,10 @@
         </div>
     </div>
 
-    <div id="done-area" style="display: none; text-align: center; margin-top: 20px;">
-        <a href="/result/{{ session.session_id }}" class="btn btn-primary" style="font-size: 16px; padding: 12px 32px;">
-            결과 확인 및 다운로드
-        </a>
+    <div id="done-area" style="display: none;">
+        <div class="action-bar">
+            <a href="/result/{{ session.session_id }}" class="btn btn-primary btn-block">결과 확인하고 다운로드</a>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -99,7 +103,9 @@ evtSource.onmessage = function(event) {
 evtSource.addEventListener('done', function(event) {
     evtSource.close();
     const status = event.data;
-    document.getElementById('current-status').textContent = status;
+    const st = document.getElementById('current-status');
+    st.textContent = status;
+    st.className = 'badge badge-' + status;
 
     if (status === 'review_ready') {
         updateStep('fetch', 'done');

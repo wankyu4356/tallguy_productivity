@@ -141,8 +141,9 @@ def check_env_file():
     env_path = PROJECT_ROOT / ".env"
     if env_path.exists():
         return print_result(".env 파일", True)
-    hint = "copy .env.example .env" if sys.platform == "win32" else "cp .env.example .env"
-    return print_result(".env 파일", False, f"{hint}  후 값을 입력하세요")
+    # Not a blocker any more: the app serves a setup page that writes this file.
+    print_result(".env 파일 (없음 — 첫 실행 시 설정 화면에서 생성)", True)
+    return True
 
 
 def check_env_vars():
@@ -157,11 +158,9 @@ def check_env_vars():
 
     missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
     if missing:
-        return print_result(
-            f"환경변수 ({', '.join(missing)} 미설정)",
-            False,
-            ".env 파일에 값을 입력하세요",
-        )
+        print_result(f"환경변수 ({', '.join(missing)} 미설정)", True)
+        print("         ℹ️  브라우저 설정 화면에서 입력하면 됩니다.")
+        return True
     optional_missing = [v for v in OPTIONAL_ENV_VARS if not os.getenv(v)]
     if optional_missing:
         print_result(

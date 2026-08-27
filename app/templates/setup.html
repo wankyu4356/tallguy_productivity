@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}설정 - 더벨 News Clipper{% endblock %}
+{% block content %}
+<div class="container container--narrow">
+    {% if not configured %}
+    <h1>시작하기 전에<br>한 가지만 설정해 주세요</h1>
+    <p class="page-sub">Claude API 키가 있어야 기사 추천과 자동 분류를 쓸 수 있어요.</p>
+    {% else %}
+    <h1>설정</h1>
+    <p class="page-sub">저장하면 바로 반영됩니다. 다시 실행할 필요는 없어요.</p>
+    {% endif %}
+
+    <div class="card">
+        <h2>Claude API 키</h2>
+        <p style="margin: 0 0 14px; font-size: 13.5px; color: var(--text-2);">
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
+            에서 발급받은 키를 붙여넣으세요.
+        </p>
+        <input type="text" id="api-key" class="btn-block" spellcheck="false" autocomplete="off"
+               placeholder="{% if api_key_masked %}{{ api_key_masked }}{% else %}sk-ant-...{% endif %}">
+        {% if api_key_masked %}
+        <p style="margin: 8px 0 0; font-size: 12.5px; color: var(--text-3);">
+            이미 저장된 키가 있어요. 바꾸지 않으려면 비워 두세요.
+        </p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>더벨 로그인 <span class="badge" style="margin-left: 4px;">선택</span></h2>
+        <p style="margin: 0 0 14px; font-size: 13.5px; color: var(--text-2);">
+            입력해 두면 매번 로그인하지 않아도 됩니다. 비워 두면 브라우저에서 직접 로그인해요.
+        </p>
+        <label class="field-label" for="thebell-id">아이디</label>
+        <input type="text" id="thebell-id" class="btn-block" spellcheck="false" autocomplete="off"
+               value="{{ thebell_id }}" placeholder="thebell ID">
+        <label class="field-label" for="thebell-pw" style="margin-top: 14px;">비밀번호</label>
+        <input type="password" id="thebell-pw" class="btn-block" autocomplete="off"
+               placeholder="{% if has_thebell_pw %}저장된 비밀번호 유지{% else %}비밀번호{% endif %}">
+    </div>
+
+    <div class="card">
+        <h2>AI 모델</h2>
+        <input type="text" id="claude-model" class="btn-block" spellcheck="false"
+               value="{{ claude_model }}" placeholder="claude-sonnet-4-6">
+        <p style="margin: 8px 0 0; font-size: 12.5px; color: var(--text-3);">
+            설정 파일 위치: <code>{{ env_path }}</code>
+        </p>
+    </div>
+
+    <div id="setup-msg" style="display:none; margin-bottom: 14px;"></div>
+
+    <div class="action-bar">
+        {% if configured %}<a href="/" class="btn">돌아가기</a>{% endif %}
+        <button class="btn btn-primary" id="btn-save" onclick="saveSetup()">저장하고 시작하기</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveSetup() {
+    const btn = document.getElementById('btn-save');
+    const msg = document.getElementById('setup-msg');
+    const payload = {
+        ANTHROPIC_API_KEY: document.getElementById('api-key').value.trim(),
+        THEBELL_ID: document.getElementById('thebell-id').value.trim(),
+        THEBELL_PW: document.getElementById('thebell-pw').value,
+        CLAUDE_MODEL: document.getElementById('claude-model').value.trim(),
+    };
+
+    btn.disabled = true;
+    btn.textContent = '저장 중...';
+    msg.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.configured) {
+            btn.textContent = '완료!';
+            window.location.href = '/';
+            return;
+        }
+        msg.className = 'card';
+        msg.style.cssText = 'background: var(--red-soft); box-shadow: none; color: var(--red); margin-bottom: 14px;';
+        msg.textContent = 'Claude API 키를 입력해 주세요.';
+        msg.style.display = 'block';
+    } catch (e) {
+        msg.className = 'card';
+        msg.style.cssText = 'background: var(--red-soft); box-shadow: none; color: var(--red); margin-bottom: 14px;';
+        msg.textContent = '저장 실패: ' + e.message;
+        msg.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = '저장하고 시작하기';
+}
+</script>
+{% endblock %}

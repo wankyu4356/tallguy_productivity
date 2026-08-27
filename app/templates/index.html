@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}더벨 News Clipper - 대시보드{% endblock %}
 {% block content %}
-<div class="container">
-    <h1>더벨 Daily News Clipping</h1>
+<div class="container container--narrow">
+    <h1>오늘의 뉴스를<br>한 번에 정리해 드릴게요</h1>
+    <p class="page-sub">더벨 기사를 수집하고 AI가 분류해 PDF와 목차를 만들어 드립니다.</p>
 
     <div class="card">
-        <h2>새 클리핑 시작</h2>
+        <h2>수집 기간</h2>
         <div class="date-info">
-            <p><strong>수집 기간:</strong></p>
             <div class="date-inputs">
                 <input type="datetime-local" id="date-from" value="{{ date_from_str }}">
                 <span class="date-sep">~</span>
@@ -15,8 +15,8 @@
             </div>
         </div>
         <div class="actions">
-            <button id="btn-start-crawl" class="btn btn-primary" onclick="startCrawl()">
-                크롤링 시작
+            <button id="btn-start-crawl" class="btn btn-primary btn-lg btn-block" onclick="startCrawl()">
+                기사 수집 시작하기
             </button>
         </div>
         <!-- Crawl Progress Tracker -->
@@ -113,7 +113,7 @@
             </div>
 
             <div class="crawl-log-toggle">
-                <button class="btn btn-sm" onclick="document.getElementById('crawl-log').classList.toggle('show')">실시간 로그 보기</button>
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('crawl-log').classList.toggle('show')">실시간 로그 보기</button>
             </div>
             <div class="log-area crawl-log" id="crawl-log"></div>
         </div>
@@ -121,7 +121,7 @@
 
     {% if sessions %}
     <div class="card">
-        <h2>이전 세션</h2>
+        <h2>최근 작업</h2>
         <table class="session-table">
             <thead>
                 <tr>
