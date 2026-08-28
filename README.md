@@ -27,6 +27,16 @@ browser_profile/    # Edge 로그인 상태 (팝업 '허용'을 기억)
 폴더째 다른 PC로 옮겨도 설정이 그대로 따라갑니다.
 포트 8000번이 사용 중이면 비어 있는 포트를 자동으로 찾습니다.
 
+### 실행 파일(EXE) 만들기
+
+**`빌드.bat` 을 더블클릭하세요.** Python만 깔려 있으면 나머지는 자동입니다:
+
+1. 최신 코드 받기 → 가상환경 → 빌드 도구(PyInstaller·PyArmor) 설치
+2. 난독화(체험판) + 하드닝으로 빌드
+3. 끝나면 `dist` 폴더가 열리고 그 안에 `TheBellNewsClipper.exe` 가 있습니다
+
+⚠️ **Windows용 exe는 반드시 Windows에서 빌드해야 합니다.** PyInstaller는 크로스컴파일을 지원하지 않아, Mac/Linux에서 만든 파일은 Windows에서 실행되지 않습니다.
+
 ### 직접 빌드하기
 
 Windows에서 `build.bat` 을 더블클릭하거나:
