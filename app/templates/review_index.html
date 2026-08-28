@@ -9,7 +9,7 @@
     <div class="ri-header">
         <div>
             <h1>목차를 확인해 주세요</h1>
-            <p>기사를 끌어다 순서를 바꾸거나 다른 섹션으로 옮길 수 있어요.</p>
+            <p>여러 개를 선택해 한 번에 옮기거나, 끌어서 순서를 바꿀 수 있어요.</p>
         </div>
         <div class="row">
             <button class="btn btn-sm btn-ghost" id="btn-back" onclick="goBackToReview()">기사 선택</button>
@@ -19,7 +19,28 @@
 
     <nav class="ri-nav" id="section-nav"></nav>
 
+    <div class="ri-toolbar">
+        <span class="ri-toolbar-hint">
+            기사를 클릭해 선택하세요. <kbd>Shift</kbd>+클릭으로 범위, <kbd>Ctrl</kbd>+클릭으로 개별 선택.
+        </span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm btn-ghost" onclick="toggleAllSections()" id="btn-collapse">전체 접기</button>
+        <button class="btn btn-sm btn-ghost" onclick="toggleDensity()" id="btn-density">간략히 보기</button>
+    </div>
+
     <div id="classification-tree"></div>
+
+    <!-- Bulk bar: appears only while something is selected -->
+    <div class="ri-bulk" id="bulk-bar">
+        <span class="ri-bulk-count"><strong id="bulk-n">0</strong>개 선택됨</span>
+        <span class="spacer"></span>
+        <div class="ri-menu-wrap">
+            <button class="btn btn-sm btn-primary" onclick="toggleMoveMenu(event)">여기로 이동 ▾</button>
+            <div class="ri-menu" id="move-menu"></div>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="removeSelected()">제거</button>
+        <button class="btn btn-sm btn-ghost" onclick="clearSelection()">해제</button>
+    </div>
 
     <div class="action-bar">
         <button class="btn" onclick="goBackToReview()">뒤로</button>
@@ -62,7 +83,11 @@ function renderTree(tree) {
         catCard.dataset.catIdx = catIdx;
 
         const catHeader = document.createElement('h2');
-        catHeader.textContent = `${catIdx + 1}. ${cat.name}`;
+        catHeader.innerHTML =
+            `<span class="ri-cat-name">${catIdx + 1}. ${escapeHtml(cat.name)}</span>` +
+            `<button class="ri-collapse" title="접기/펴기">▾</button>`;
+        catHeader.querySelector('.ri-collapse')
+            .addEventListener('click', () => catCard.classList.toggle('is-collapsed'));
         catCard.appendChild(catHeader);
 
         // Count articles in this category
@@ -70,7 +95,7 @@ function renderTree(tree) {
 
         // Direct articles under category (always create list for drop target)
         if (!cat.subcategories || cat.subcategories.length === 0) {
-            const list = createSortableList(cat.articles || []);
+            const list = createSortableList(cat.articles || [], cat.name);
             catCard.appendChild(list);
         }
 
@@ -94,7 +119,8 @@ function renderTree(tree) {
                         siSection.appendChild(siHeader);
 
                         catArticleCount += (si.articles || []).length;
-                        const list = createSortableList(si.articles || []);
+                        const list = createSortableList(si.articles || [],
+                            `${cat.name} › ${sub.name} › ${si.name}`);
                         siSection.appendChild(list);
 
                         subSection.appendChild(siSection);
@@ -103,7 +129,8 @@ function renderTree(tree) {
 
                 // Direct articles under subcategory (always create list for drop target)
                 catArticleCount += (sub.articles || []).length;
-                const subList = createSortableList(sub.articles || []);
+                const subList = createSortableList(sub.articles || [],
+                    `${cat.name} › ${sub.name}`);
                 subSection.appendChild(subList);
 
                 catCard.appendChild(subSection);
@@ -123,6 +150,9 @@ function renderTree(tree) {
         });
         nav.appendChild(navBtn);
     });
+
+    buildMoveMenu();
+    clearSelection();
 }
 
 function escapeHtml(str) {
@@ -131,9 +161,13 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
-function createSortableList(articles) {
+let destSeq = 0;
+
+function createSortableList(articles, label) {
     const list = document.createElement('div');
     list.className = 'ri-article-list';
+    list.dataset.dest = 'd' + (destSeq++);
+    list.dataset.destLabel = label || '';
 
     articles.forEach((art, idx) => {
         list.appendChild(createArticleItem(art, idx));
@@ -146,6 +180,12 @@ function createSortableList(articles) {
         ghostClass: 'ri-ghost',
         chosenClass: 'ri-chosen',
         dragClass: 'ri-drag',
+        // Long lists mean the drop target is usually off-screen — let the page
+        // scroll itself while dragging instead of making the user do it.
+        scroll: true,
+        scrollSensitivity: 90,
+        scrollSpeed: 14,
+        forceAutoScrollFallback: true,
         onStart: function() {
             document.querySelectorAll('.ri-article-list').forEach(l => l.classList.add('ri-drop-active'));
         },
@@ -191,6 +231,11 @@ function createArticleItem(art, idx) {
             </button>
         </div>
     `;
+
+    item.querySelector('.ri-article-body').addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) return;   // links and × keep working
+        onItemClick(item, e);
+    });
     return item;
 }
 
@@ -220,6 +265,126 @@ function renumberList(list) {
         if (numEl) numEl.textContent = idx + 1;
     });
 }
+
+/* ==========================================================================
+   Bulk arrangement — the drag-only flow forces long scrolls once a section has
+   more than a screenful of articles. Selecting rows and moving them in one go
+   is the desktop-friendly path; dragging stays for fine reordering.
+   ========================================================================== */
+
+let lastClicked = null;
+
+function selectedItems() {
+    return Array.from(document.querySelectorAll('.ri-article-item.is-sel'));
+}
+
+function onItemClick(item, e) {
+    const list = item.closest('.ri-article-list');
+
+    if (e.shiftKey && lastClicked && lastClicked.closest('.ri-article-list') === list) {
+        const rows = Array.from(list.querySelectorAll('.ri-article-item'));
+        const [a, b] = [rows.indexOf(lastClicked), rows.indexOf(item)].sort((x, y) => x - y);
+        rows.slice(a, b + 1).forEach(r => r.classList.add('is-sel'));
+    } else if (e.ctrlKey || e.metaKey) {
+        item.classList.toggle('is-sel');
+        lastClicked = item;
+    } else {
+        const wasOnly = item.classList.contains('is-sel') && selectedItems().length === 1;
+        clearSelection();
+        if (!wasOnly) { item.classList.add('is-sel'); lastClicked = item; }
+    }
+    syncSelectionUI();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.ri-article-item.is-sel')
+        .forEach(el => el.classList.remove('is-sel'));
+    lastClicked = null;
+    syncSelectionUI();
+}
+
+function syncSelectionUI() {
+    const n = selectedItems().length;
+    document.getElementById('bulk-n').textContent = n;
+    document.getElementById('bulk-bar').classList.toggle('is-on', n > 0);
+    if (n === 0) closeMoveMenu();
+}
+
+function buildMoveMenu() {
+    const menu = document.getElementById('move-menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+    document.querySelectorAll('.ri-article-list').forEach(list => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ri-menu-item';
+        btn.textContent = list.dataset.destLabel || '(이름 없음)';
+        btn.addEventListener('click', () => moveSelectedTo(list));
+        menu.appendChild(btn);
+    });
+}
+
+function toggleMoveMenu(e) {
+    e.stopPropagation();
+    document.getElementById('move-menu').classList.toggle('is-on');
+}
+function closeMoveMenu() {
+    const m = document.getElementById('move-menu');
+    if (m) m.classList.remove('is-on');
+}
+
+function moveSelectedTo(targetList) {
+    const items = selectedItems();
+    if (!items.length) return;
+    const touched = new Set([targetList]);
+    items.forEach(item => {
+        touched.add(item.closest('.ri-article-list'));
+        targetList.appendChild(item);          // keeps their current relative order
+    });
+    touched.forEach(l => l && renumberList(l));
+    clearSelection();
+    updateNavCounts();
+    targetList.closest('.ri-category')?.classList.remove('is-collapsed');
+    targetList.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeSelected() {
+    const items = selectedItems();
+    if (!items.length) return;
+    if (!confirm(`선택한 ${items.length}개 기사를 목차에서 제거할까요?`)) return;
+    const touched = new Set();
+    items.forEach(item => {
+        touched.add(item.closest('.ri-article-list'));
+        item.remove();
+    });
+    touched.forEach(l => l && renumberList(l));
+    clearSelection();
+    updateNavCounts();
+}
+
+function toggleAllSections() {
+    const cards = Array.from(document.querySelectorAll('.ri-category'));
+    const collapse = !cards.every(c => c.classList.contains('is-collapsed'));
+    cards.forEach(c => c.classList.toggle('is-collapsed', collapse));
+    document.getElementById('btn-collapse').textContent = collapse ? '전체 펴기' : '전체 접기';
+}
+
+function toggleDensity() {
+    const on = document.body.classList.toggle('is-compact');
+    document.getElementById('btn-density').textContent = on ? '자세히 보기' : '간략히 보기';
+    try { localStorage.setItem('ri-compact', on ? '1' : '0'); } catch (_) {}
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.ri-menu-wrap')) closeMoveMenu();
+    if (!e.target.closest('.ri-article-item, .ri-bulk')) clearSelection();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { clearSelection(); closeMoveMenu(); }
+});
+try {
+    if (localStorage.getItem('ri-compact') === '1') toggleDensity();
+} catch (_) {}
 
 function collectTree() {
     const container = document.getElementById('classification-tree');
