@@ -32,6 +32,8 @@
                 <div class="crawl-timer-value" id="crawl-timer">00:00.000</div>
             </div>
 
+            <div id="wait-mount" style="margin-bottom: 14px;"></div>
+
             <div class="crawl-pipeline" id="crawl-pipeline">
                 <div class="crawl-stage" id="stage-browser" data-stage="browser">
                     <div class="crawl-stage-icon">
@@ -236,6 +238,10 @@ async function startCrawl() {
     btn.disabled = true;
     tracker.style.display = 'block';
     startTimer();
+    // Ask while we still have the click — permission prompts need a gesture.
+    WaitUX.askNotifyPermission();
+    WaitUX.mount(document.getElementById('wait-mount'));
+    WaitUX.start('시작하는 중');
     setStage('stage-browser', 'active', '브라우저 시작 중...');
 
     try {
@@ -332,6 +338,10 @@ function connectCrawlSSE(sessionId) {
         }
     };
 
+    evtSource.addEventListener('state', function(event) {
+        try { WaitUX.onState(JSON.parse(event.data)); } catch (e) { /* ignore */ }
+    });
+
     evtSource.addEventListener('done', function(event) {
         evtSource.close();
         clearInterval(timerInterval);
@@ -344,9 +354,12 @@ function connectCrawlSSE(sessionId) {
                     setStage(s.id, 'done', '완료');
                 }
             });
+            WaitUX.finish(true, '수집 완료!');
+            WaitUX.notify('기사 수집이 끝났어요', '이제 기사를 골라 주세요.');
             appendCrawlLog('크롤링 완료! 기사 선택 페이지로 이동합니다...');
             setTimeout(() => window.location.href = `/review/${sessionId}`, 1500);
         } else if (status === 'error') {
+            WaitUX.finish(false, '오류가 발생했어요');
             appendCrawlLog('⚠ 오류가 발생했습니다.');
             document.querySelectorAll('.crawl-stage.active').forEach(s => {
                 setStage(s.id, 'error', '오류 발생');
@@ -358,6 +371,7 @@ function connectCrawlSSE(sessionId) {
     evtSource.onerror = function() {
         evtSource.close();
         clearInterval(timerInterval);
+        WaitUX.finish(false, '서버 연결이 끊겼어요');
         appendCrawlLog('⚠ 서버 연결 끊김');
     };
 }

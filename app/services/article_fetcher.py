@@ -406,6 +406,7 @@ def _fetch_articles_sync(
     articles: list[ArticleInfo],
     output_dir: Path,
     on_progress: callable | None = None,
+    on_step: callable | None = None,
 ) -> list[ArticleWithContent]:
     """Fetch multiple articles sequentially (synchronous)."""
     results = []
@@ -413,6 +414,8 @@ def _fetch_articles_sync(
     pdf_fail = 0
     start_time = time.time()
     for i, article in enumerate(articles):
+        if on_step:
+            on_step(i + 1, len(articles), article.title)
         if on_progress:
             on_progress(f"기사 수집 중: {i + 1}/{len(articles)} - {article.title[:30]}...")
         try:
@@ -451,9 +454,10 @@ async def fetch_articles(
     articles: list[ArticleInfo],
     output_dir: Path,
     on_progress: callable | None = None,
+    on_step: callable | None = None,
 ) -> list[ArticleWithContent]:
     """Fetch multiple articles with sequential processing."""
     output_dir.mkdir(parents=True, exist_ok=True)
     return await asyncio.to_thread(
-        _fetch_articles_sync, context.driver, articles, output_dir, on_progress
+        _fetch_articles_sync, context.driver, articles, output_dir, on_progress, on_step
     )

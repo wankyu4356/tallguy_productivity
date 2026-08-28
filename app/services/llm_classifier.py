@@ -118,6 +118,7 @@ def _get_client() -> anthropic.Anthropic:
 async def recommend_articles(
     articles: list[ArticleInfo],
     max_count: int | None = None,
+    on_step: callable | None = None,
 ) -> list[ArticleRecommendation]:
     """Use Claude to recommend which articles are worth including.
 
@@ -134,9 +135,14 @@ async def recommend_articles(
     # Each recommendation ≈ 30-50 tokens; 4096 tokens fits ~80 articles safely.
     batch_size = 60
     all_recommendations: list[ArticleRecommendation] = []
+    total_batches = (len(articles) + batch_size - 1) // batch_size
 
     for batch_start in range(0, len(articles), batch_size):
         batch = articles[batch_start:batch_start + batch_size]
+        batch_no = batch_start // batch_size + 1
+        if on_step:
+            on_step(batch_no - 1, total_batches,
+                    f"{len(batch)}개 기사 분석 중 ({batch_no}/{total_batches}번째 묶음)")
         batch_text = "\n".join([
             f"[{a.id}] {a.title} (카테고리: {a.subcategory})\n  요약: {a.summary or '없음'}"
             for a in batch
@@ -199,6 +205,9 @@ async def recommend_articles(
                 ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요")
                 for a in batch
             ])
+
+        if on_step:
+            on_step(batch_no, total_batches, f"{batch_no}/{total_batches}번째 묶음 완료")
 
     if all_recommendations:
         return all_recommendations

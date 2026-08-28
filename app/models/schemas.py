@@ -72,6 +72,26 @@ class SessionStatus(str, Enum):
     ERROR = "error"
 
 
+class ProgressState(BaseModel):
+    """Machine-readable progress so the UI can show a real bar and an ETA.
+
+    The message log tells the user *what* is happening; this tells them
+    *how far along* it is, which is what makes a multi-minute wait bearable.
+    """
+    phase: str = ""          # crawl | recommend | fetch | classify | finalize
+    label: str = ""          # short human label for the phase
+    detail: str = ""         # what is being worked on right now
+    current: int = 0
+    total: int = 0
+    started_at: float = 0.0  # epoch seconds, for elapsed/ETA on the client
+
+    @property
+    def percent(self) -> int:
+        if self.total <= 0:
+            return 0
+        return min(100, round(self.current / self.total * 100))
+
+
 class SessionState(BaseModel):
     session_id: str
     status: SessionStatus = SessionStatus.IDLE
@@ -82,6 +102,7 @@ class SessionState(BaseModel):
     articles_with_content: list[ArticleWithContent] = []
     classification: ClassifiedOutput | None = None
     progress_messages: list[str] = []
+    progress: ProgressState = Field(default_factory=ProgressState)
     error: str = ""
     zip_path: str = ""
     date_from: datetime | None = None

@@ -125,11 +125,10 @@ header nav {
 }
 .logo:hover { text-decoration: none; opacity: .75; }
 .logo img {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
     object-fit: cover;
-    box-shadow: 0 1px 3px rgba(224,31,38,.28);
 }
 .logo-sub {
     font-size: 11px;
@@ -1156,3 +1155,106 @@ a.list-row:hover .list-row-chevron { color: var(--text-3); }
     font-size: 11.5px;
     word-break: break-all;
 }
+
+/* ==========================================================================
+   Waiting panel — progress bar, ETA, rotating tips
+   ========================================================================== */
+
+.wait {
+    padding: 18px;
+    border-radius: var(--r-md);
+    background: var(--surface-sunken);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.wait.is-on { opacity: 1; transform: none; }
+.wait.is-error { background: var(--red-soft); }
+
+.wait-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.wait-label {
+    font-size: 15.5px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--text);
+}
+.wait-pct {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--blue);
+    font-variant-numeric: tabular-nums;
+}
+.is-error .wait-pct { color: var(--red); }
+
+.wait-bar {
+    height: 8px;
+    border-radius: var(--r-full);
+    background: rgba(0,0,0,.07);
+    overflow: hidden;
+}
+.wait-bar-fill {
+    height: 100%;
+    width: 0;
+    border-radius: var(--r-full);
+    background: var(--blue);
+    transition: width .5s var(--ease);
+}
+.is-error .wait-bar-fill { background: var(--red); }
+
+/* Unknown total: sweep instead of pretending to know the percentage. */
+.wait-bar-fill.is-indeterminate {
+    width: 38% !important;
+    animation: sweep 1.5s var(--ease) infinite;
+}
+@keyframes sweep {
+    0%   { transform: translateX(-110%); }
+    100% { transform: translateX(300%); }
+}
+
+.wait-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 9px;
+    font-size: 12.5px;
+    color: var(--text-3);
+}
+.wait-detail {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wait-time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+.wait-tip {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-2);
+    transition: opacity .18s var(--ease);
+}
+.wait-tip:empty { display: none; }
+
+/* Shimmer skeleton, for lists that are still loading */
+.skeleton {
+    border-radius: var(--r-xs);
+    background: linear-gradient(90deg, #EEF1F4 25%, #F6F8FA 37%, #EEF1F4 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+    0%   { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+.skeleton-line { height: 13px; margin-bottom: 9px; }
+.skeleton-line:last-child { width: 62%; margin-bottom: 0; }

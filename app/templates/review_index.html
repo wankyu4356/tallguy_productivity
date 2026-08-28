@@ -28,10 +28,8 @@
 
     <div id="finalize-status" style="display: none; margin-top: 20px;">
         <div class="card">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div class="spinner"></div>
-                <span id="finalize-msg">PDF/DOCX 생성 중...</span>
-            </div>
+            <div id="wait-mount"></div>
+            <div id="finalize-msg" class="hint" style="margin-top: 12px;"></div>
         </div>
     </div>
 </div>
@@ -313,24 +311,34 @@ async function handleConfirm() {
     document.getElementById('finalize-status').style.display = 'block';
     btns.forEach(b => b.style.display = 'none');
 
+    WaitUX.askNotifyPermission();
+    WaitUX.mount(document.getElementById('wait-mount'));
+    WaitUX.start('마무리하는 중');
+
     const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
     const msgEl = document.getElementById('finalize-msg');
 
-    evtSource.onmessage = function(event) {
-        msgEl.textContent = event.data;
-    };
+    evtSource.onmessage = function(event) { msgEl.textContent = event.data; };
+    evtSource.addEventListener('state', function(event) {
+        try { WaitUX.onState(JSON.parse(event.data)); } catch (e) { /* ignore */ }
+    });
 
     evtSource.addEventListener('done', function(event) {
         evtSource.close();
         if (event.data === 'done') {
-            window.location.href = `/result/${SESSION_ID}`;
+            WaitUX.finish(true, '완성됐어요!');
+            WaitUX.notify('클리핑이 완성됐어요', 'ZIP 파일을 내려받으세요.');
+            setTimeout(() => { window.location.href = `/result/${SESSION_ID}`; }, 600);
         } else {
+            WaitUX.finish(false, '오류가 발생했어요');
             msgEl.textContent = '오류가 발생했습니다.';
-            msgEl.style.color = 'var(--error)';
         }
     });
 
-    evtSource.onerror = function() { evtSource.close(); };
+    evtSource.onerror = function() {
+        evtSource.close();
+        WaitUX.finish(false, '서버 연결이 끊겼어요');
+    };
 }
 
 async function goBackToReview() {
@@ -370,22 +378,30 @@ async function handleReclassify() {
         // Show progress
         document.getElementById('finalize-status').style.display = 'block';
         const msgEl = document.getElementById('finalize-msg');
-        msgEl.textContent = 'AI 재분류 중 (엄밀 모드)...';
+        WaitUX.askNotifyPermission();
+        WaitUX.mount(document.getElementById('wait-mount'));
+        WaitUX.start('AI가 다시 분류하는 중');
 
         const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
         evtSource.onmessage = function(event) { msgEl.textContent = event.data; };
+        evtSource.addEventListener('state', function(event) {
+            try { WaitUX.onState(JSON.parse(event.data)); } catch (e) { /* ignore */ }
+        });
         evtSource.addEventListener('done', function(event) {
             evtSource.close();
             if (event.data === 'review_ready') {
-                // Reload the page to show new classification
-                window.location.reload();
+                WaitUX.finish(true, '재분류 완료!');
+                WaitUX.notify('재분류가 끝났어요', '새 목차를 확인해 주세요.');
+                setTimeout(() => window.location.reload(), 600);
             } else if (event.data === 'error') {
-                msgEl.textContent = '재분류 중 오류가 발생했습니다.';
-                msgEl.style.color = 'var(--error)';
+                WaitUX.finish(false, '재분류 중 오류가 발생했어요');
                 btns.forEach(b => { b.disabled = false; b.textContent = 'AI 재분류'; });
             }
         });
-        evtSource.onerror = function() { evtSource.close(); };
+        evtSource.onerror = function() {
+            evtSource.close();
+            WaitUX.finish(false, '서버 연결이 끊겼어요');
+        };
     } catch (e) {
         alert('오류: ' + e.message);
         btns.forEach(b => { b.disabled = false; b.textContent = 'AI 재분류'; });

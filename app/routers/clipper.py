@@ -1,4 +1,6 @@
 import asyncio
+import json
+import time as _t
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +31,23 @@ def _get_sessions() -> dict[str, SessionState]:
 def _get_browser_manager():
     from app.main import browser_manager
     return browser_manager
+
+
+def _set_progress(session, phase: str, label: str, *, current: int = 0,
+                  total: int = 0, detail: str = "") -> None:
+    """Publish machine-readable progress so the UI can draw a bar and an ETA.
+
+    Entering a new phase restarts the clock, so the ETA reflects the rate of
+    the work actually being done rather than the whole run.
+    """
+    p = session.progress
+    if p.phase != phase:
+        p.started_at = _t.time()
+    p.phase = phase
+    p.label = label
+    p.current = current
+    p.total = total
+    p.detail = detail
 
 
 # --- API Endpoints ---
@@ -85,11 +104,13 @@ async def _crawl_task(session_id: str):
 
         # Step 1: Create browser context
         logger.info(f"{task_stage} 브라우저 컨텍스트 생성 중...")
+        _set_progress(session, "browser", "브라우저 준비 중")
         ctx = await bm.new_context(headless=False)
         logger.info(f"{task_stage} 브라우저 컨텍스트 생성 완료 | elapsed={_time.time()-t0:.1f}s")
 
         # Step 2: Login
         session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
+        _set_progress(session, "login", "더벨 로그인 중")
         t_login = _time.time()
         login_ok = await login(ctx)
         login_elapsed = _time.time() - t_login
@@ -104,9 +125,20 @@ async def _crawl_task(session_id: str):
         session.progress_messages.append(f"로그인 성공! ({login_elapsed:.0f}초)")
         logger.info(f"{task_stage} 로그인 성공 | elapsed={login_elapsed:.1f}s")
 
-        # Step 3: Crawl
+        # Step 3: Crawl — count sections as they start so the bar advances.
+        from app.services.crawler import SECTION_CODES
+        _set_progress(session, "crawl", "기사 목록 수집 중", current=0,
+                      total=len(SECTION_CODES))
+
         def on_progress(msg: str):
             session.progress_messages.append(msg)
+            if msg.startswith("카테고리 수집 시작:"):
+                session.progress.detail = msg.split(":", 1)[1].strip()
+            elif "수집 완료" in msg:
+                session.progress.current = min(
+                    session.progress.current + 1, session.progress.total)
+            elif msg.startswith("기사 상세정보 보완"):
+                _set_progress(session, "detail", "기사 정보 보완 중")
 
         t_crawl = _time.time()
         articles = await crawl_all_categories(
@@ -187,8 +219,15 @@ async def _recommend_task(session_id: str, max_count: int | None = None):
     try:
         count_msg = f" (목표: 약 {max_count}개)" if max_count else ""
         logger.info(f"{task_stage} 시작 | session={session_id[:8]} | articles={len(session.articles)}개{count_msg}")
-        session.progress_messages.append(f"LLM 기사 추천 분석 중...{count_msg}")
-        recommendations = await recommend_articles(session.articles, max_count=max_count)
+        session.progress_messages.append(f"AI가 기사를 살펴보는 중...{count_msg}")
+        _set_progress(session, "recommend", "AI 추천 분석 중")
+
+        def on_step(current: int, total: int, detail: str = ""):
+            _set_progress(session, "recommend", "AI 추천 분석 중",
+                          current=current, total=total, detail=detail)
+
+        recommendations = await recommend_articles(
+            session.articles, max_count=max_count, on_step=on_step)
         session.recommendations = recommendations
         session.status = SessionStatus.RECOMMEND_DONE
         recommended_count = sum(1 for r in recommendations if r.recommended)
@@ -287,6 +326,7 @@ async def _generate_task(session_id: str):
 
         # Step 1: Fetch articles and generate individual PDFs
         on_progress("Step 1/5: 브라우저에서 더벨 로그인을 완료하세요...")
+        _set_progress(session, "login", "더벨 로그인 중")
         ctx = await bm.new_context(headless=False)
 
         from app.services.crawler import login
@@ -303,8 +343,16 @@ async def _generate_task(session_id: str):
         on_progress(f"로그인 성공! ({login_elapsed:.0f}초) 기사 본문 수집 및 PDF 생성 중...")
         logger.info(f"{task_stage} 로그인 성공 | elapsed={login_elapsed:.1f}s")
 
+        _set_progress(session, "fetch", "기사 본문 수집 중",
+                      current=0, total=len(selected))
+
+        def on_step(current: int, total: int, title: str = ""):
+            _set_progress(session, "fetch", "기사 본문 수집 중",
+                          current=current, total=total, detail=title)
+
         t_fetch = _time.time()
-        articles_with_content = await fetch_articles(ctx, selected, pdfs_dir, on_progress)
+        articles_with_content = await fetch_articles(
+            ctx, selected, pdfs_dir, on_progress, on_step=on_step)
         fetch_elapsed = _time.time() - t_fetch
         session.articles_with_content = articles_with_content
         logger.info(
@@ -316,6 +364,7 @@ async def _generate_task(session_id: str):
 
         # Step 2: Classify with LLM
         on_progress("Step 2/5: AI 분류 중...")
+        _set_progress(session, "classify", "AI가 목차를 짜는 중")
         t_classify = _time.time()
         classification = await classify_articles(articles_with_content)
         classify_elapsed = _time.time() - t_classify
@@ -375,6 +424,7 @@ async def _reclassify_task(session_id: str):
         articles = session.articles_with_content
         logger.info(f"{task_stage} 시작 (strict mode) | session={session_id[:8]} | articles={len(articles)}개")
         session.progress_messages.append("AI 재분류 중 (심층 분석 모드 — 시간이 더 걸릴 수 있습니다)...")
+        _set_progress(session, "classify", "AI 재분류 중 (심층 분석)")
 
         # Identify issues from previous classification
         prev_issues = ""
@@ -439,6 +489,7 @@ async def _finalize_task(session_id: str):
         date_str = session.date_to.strftime("%Y.%m.%d") if session.date_to else datetime.now().strftime("%Y.%m.%d")
 
         # Step 3: Merge PDFs
+        _set_progress(session, "finalize", "PDF 합본 중", current=0, total=3)
         on_progress("Step 3/5: PDF 합본 중...")
         merged_pdf_path = session_dir / f"(더벨) Daily News Clipping {date_str}.pdf"
         t_step = _time.time()
@@ -447,6 +498,7 @@ async def _finalize_task(session_id: str):
         logger.info(f"{task_stage} Step 3 PDF 합본 완료 | elapsed={_time.time()-t_step:.1f}s")
 
         # Step 4: Generate DOCX
+        _set_progress(session, "finalize", "DOCX 목차 생성 중", current=1, total=3)
         on_progress("Step 4/5: DOCX 목차 생성 중...")
         docx_path = session_dir / f"(더벨) Daily News Clipping {date_str}.docx"
         on_progress("Step 4/5: DOCX 목차 생성 ���...")
@@ -457,6 +509,7 @@ async def _finalize_task(session_id: str):
         on_progress("DOCX 생성 완료!")
 
         # Step 5: Package ZIP
+        _set_progress(session, "finalize", "ZIP 파일 만드는 중", current=2, total=3)
         on_progress("Step 5/5: ZIP 파일 생성 중...")
         zip_path = session_dir / f"(더벨) Daily News Clipping {date_str}.zip"
         t_step = _time.time()
@@ -464,6 +517,7 @@ async def _finalize_task(session_id: str):
         create_zip(articles_with_content, merged_pdf_path, docx_path, zip_path, date_str)
         logger.info(f"{task_stage} Step 5 ZIP 패키징 ���료 | elapsed={_time.time()-t_step:.1f}s")
 
+        _set_progress(session, "finalize", "완료", current=3, total=3)
         session.zip_path = str(zip_path)
         session.status = SessionStatus.DONE
         total_elapsed = _time.time() - t0
@@ -736,11 +790,19 @@ async def progress_stream(session_id: str):
 
     async def event_stream():
         last_idx = 0
+        last_state = None
         while True:
             if len(session.progress_messages) > last_idx:
                 for msg in session.progress_messages[last_idx:]:
                     yield f"data: {msg}\n\n"
                 last_idx = len(session.progress_messages)
+
+            state = session.progress.model_dump()
+            state["percent"] = session.progress.percent
+            state["status"] = session.status.value
+            if state != last_state:
+                yield f"event: state\ndata: {json.dumps(state, ensure_ascii=False)}\n\n"
+                last_state = state
 
             if session.status in (SessionStatus.DONE, SessionStatus.ERROR,
                                   SessionStatus.CRAWL_DONE, SessionStatus.RECOMMEND_DONE,

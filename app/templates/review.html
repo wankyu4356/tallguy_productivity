@@ -28,7 +28,7 @@
                 <span class="spacer"></span>
                 <button class="btn btn-primary" onclick="requestRecommend()">AI 추천 받기</button>
             </div>
-            <div id="recommend-status" style="margin-top: 10px; font-size: 13.5px; color: var(--blue-strong);"></div>
+            <div id="recommend-status" style="margin-top: 14px;"></div>
         </div>
         {% endif %}
 
@@ -122,10 +122,15 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function requestRecommend() {
-    const status = document.getElementById('recommend-status');
     const maxCountInput = document.getElementById('max-count');
     const maxCount = maxCountInput && maxCountInput.value ? parseInt(maxCountInput.value) : null;
-    status.textContent = maxCount ? `AI 분석 중... (약 ${maxCount}개 추천 예정)` : 'AI 분석 중...';
+    const btn = document.querySelector('#recommend-action .btn-primary');
+
+    WaitUX.askNotifyPermission();
+    WaitUX.mount(document.getElementById('recommend-status'));
+    WaitUX.start(maxCount ? `약 ${maxCount}개를 골라 드릴게요` : 'AI가 기사를 살펴보는 중');
+    if (btn) btn.disabled = true;
+
     try {
         const body = {};
         if (maxCount) body.max_count = maxCount;
@@ -134,23 +139,34 @@ async function requestRecommend() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        // Poll for results
-        const interval = setInterval(async () => {
-            const res = await fetch(`/api/recommend/${SESSION_ID}`);
-            const data = await res.json();
-            if (data.status === 'recommend_done') {
-                clearInterval(interval);
-                window.location.reload();
-            } else if (data.status === 'error') {
-                clearInterval(interval);
-                status.textContent = '오류 발생. 수동 선택으로 진행하세요.';
-            } else {
-                status.textContent = 'AI 분석 중...';
-            }
-        }, 2000);
     } catch (e) {
-        status.textContent = '오류: ' + e.message;
+        WaitUX.finish(false, '요청 실패: ' + e.message);
+        if (btn) btn.disabled = false;
+        return;
     }
+
+    // Follow the same progress stream the other screens use, so the bar and the
+    // remaining-time estimate come from the server's own batch counts.
+    const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
+    evtSource.addEventListener('state', (event) => {
+        try { WaitUX.onState(JSON.parse(event.data)); } catch (_) {}
+    });
+    evtSource.addEventListener('done', (event) => {
+        evtSource.close();
+        if (event.data === 'recommend_done') {
+            WaitUX.finish(true, '추천 완료!');
+            WaitUX.notify('추천이 끝났어요', '골라 놓은 기사를 확인해 주세요.');
+            setTimeout(() => window.location.reload(), 700);
+        } else if (event.data === 'error') {
+            WaitUX.finish(false, '추천에 실패했어요. 직접 골라 주세요.');
+            if (btn) btn.disabled = false;
+        }
+    });
+    evtSource.onerror = () => {
+        evtSource.close();
+        WaitUX.finish(false, '서버 연결이 끊겼어요');
+        if (btn) btn.disabled = false;
+    };
 }
 
 async function confirmSelection() {
@@ -173,6 +189,7 @@ async function confirmSelection() {
         const data = await res.json();
         if (data.status === 'selected') {
             // Start generation
+            WaitUX.askNotifyPermission();
             await fetch(`/api/generate/${SESSION_ID}`, { method: 'POST' });
             window.location.href = `/progress/${SESSION_ID}`;
         }

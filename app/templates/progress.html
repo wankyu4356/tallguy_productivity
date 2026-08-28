@@ -6,9 +6,10 @@
     <p class="page-sub">기사 본문을 모으고 AI가 분류하는 중입니다. 창을 닫지 말고 기다려 주세요.</p>
 
     <div class="card">
+        <div id="wait-mount" style="margin-bottom: 18px;"></div>
         <div class="card-head">
             <h2>진행 단계</h2>
-            <span class="badge badge-{{ session.status.value }}" id="current-status">{{ session.status.value }}</span>
+            <span class="badge badge-{{ session.status.value }}" id="current-status">{{ session.status | status_label }}</span>
         </div>
 
         <ul class="progress-steps" id="progress-steps">
@@ -68,8 +69,15 @@ function updateStep(stepName, status) {
     }
 }
 
+WaitUX.mount(document.getElementById('wait-mount'));
+WaitUX.start('준비 중');
+
 // Connect to SSE for real-time progress
 const evtSource = new EventSource(`/api/progress/${SESSION_ID}`);
+
+evtSource.addEventListener('state', function(event) {
+    try { WaitUX.onState(JSON.parse(event.data)); } catch (e) { /* ignore */ }
+});
 
 evtSource.onmessage = function(event) {
     const msg = event.data;
@@ -104,10 +112,12 @@ evtSource.addEventListener('done', function(event) {
     evtSource.close();
     const status = event.data;
     const st = document.getElementById('current-status');
-    st.textContent = status;
+    st.textContent = statusLabel(status);
     st.className = 'badge badge-' + status;
 
     if (status === 'review_ready') {
+        WaitUX.finish(true, '분류 완료!');
+        WaitUX.notify('AI 분류가 끝났어요', '목차를 확인해 주세요.');
         updateStep('fetch', 'done');
         updateStep('classify', 'done');
         appendLog('log-area', 'AI 분류 완료! 검수 페이지로 이동합니다...', 'success');
@@ -115,16 +125,20 @@ evtSource.addEventListener('done', function(event) {
             window.location.href = `/review-index/${SESSION_ID}`;
         }, 1000);
     } else if (status === 'done') {
+        WaitUX.finish(true, '모두 완료!');
+        WaitUX.notify('클리핑이 완성됐어요', 'ZIP 파일을 내려받으세요.');
         steps.forEach(s => updateStep(s, 'done'));
         document.getElementById('done-area').style.display = 'block';
         appendLog('log-area', '모든 작업이 완료되었습니다!', 'success');
     } else if (status === 'error') {
+        WaitUX.finish(false, '오류가 발생했어요');
         appendLog('log-area', '오류가 발생했습니다.', 'error');
     }
 });
 
 evtSource.onerror = function() {
     evtSource.close();
+    WaitUX.finish(false, '서버 연결이 끊겼어요');
     appendLog('log-area', '연결이 끊어졌습니다. 페이지를 새로고침하세요.', 'error');
 };
 </script>
