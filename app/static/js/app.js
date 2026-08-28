@@ -286,6 +286,215 @@ const WaitUX = (() => {
 
 
 /* ==========================================================================
+   Motion layer II (ref: trionn.com)
+
+   Scroll hairline, headline character reveal, staggered lists, magnetic
+   buttons, card tilt and the belt wipe on outbound navigation.
+
+   Rules this module holds itself to, because it is pure decoration:
+     - prefers-reduced-motion switches the whole thing off before anything runs
+     - no element is ever left hidden: every reveal has a path to visible, and
+       anything already on screen at load is shown outright
+     - navigation is never blocked on an animation finishing
+   ========================================================================== */
+(function () {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;
+
+    const raf = window.requestAnimationFrame.bind(window);
+    const ready = (fn) => (document.readyState === 'loading'
+        ? document.addEventListener('DOMContentLoaded', fn) : fn());
+
+    /* ---- Scroll progress hairline ------------------------------------- */
+    function scrollBar() {
+        const bar = document.createElement('div');
+        bar.className = 'sx';
+        document.body.appendChild(bar);
+        let queued = false;
+        const paint = () => {
+            queued = false;
+            const max = document.documentElement.scrollHeight - window.innerHeight;
+            const p = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+            bar.style.transform = `scaleX(${p})`;
+        };
+        addEventListener('scroll', () => {
+            if (queued) return;
+            queued = true;
+            raf(paint);
+        }, { passive: true });
+        paint();
+    }
+
+    /* ---- Headline: split into lines, then characters ------------------- */
+    function splitHeadline() {
+        const h1 = document.querySelector('.container h1');
+        // Only plain text and <br> can be split safely — bail on anything else
+        // rather than destroying markup we didn't author.
+        if (!h1 || h1.dataset.split) return;
+        const ok = Array.from(h1.childNodes).every(
+            n => n.nodeType === 3 || (n.nodeType === 1 && n.tagName === 'BR'));
+        if (!ok) return;
+
+        const lines = h1.innerHTML.split(/<br\s*\/?>/i);
+        h1.dataset.split = '1';
+        // Per-character spans read out letter by letter, so hand assistive
+        // tech the whole heading and hide the pieces.
+        h1.setAttribute('aria-label', h1.textContent.replace(/\s+/g, ' ').trim());
+        h1.innerHTML = '';
+        let i = 0;
+        lines.forEach((line) => {
+            const wrap = document.createElement('span');
+            wrap.className = 'hl-line';
+            wrap.setAttribute('aria-hidden', 'true');
+            // textContent round-trip: the split source was text + <br> only,
+            // so this also unescapes entities without ever parsing HTML.
+            const probe = document.createElement('textarea');
+            probe.innerHTML = line;
+            Array.from(probe.value).forEach((ch) => {
+                const c = document.createElement('span');
+                c.className = 'hl-char';
+                c.textContent = ch;
+                c.style.setProperty('--d', `${0.18 + i * 0.018}s`);
+                wrap.appendChild(c);
+                i += 1;
+            });
+            h1.appendChild(wrap);
+        });
+        const go = () => raf(() => raf(() => h1.classList.add('hl-ready')));
+        // If the splash is still up, let it hand over; never wait forever.
+        const pl = document.getElementById('pl');
+        if (pl && !pl.classList.contains('is-gone')) {
+            let started = false;
+            const once = () => { if (!started) { started = true; go(); } };
+            document.addEventListener('pl:done', once, { once: true });
+            setTimeout(once, 3000);
+        } else {
+            go();
+        }
+    }
+
+    /* ---- Staggered children -------------------------------------------- */
+    function stagger() {
+        const groups = document.querySelectorAll(
+            '.chips, .list, .crawl-pipeline, .ri-nav, .rail, .action-bar, .steps');
+        if (!groups.length) return;
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach((e) => {
+                if (!e.isIntersecting) return;
+                e.target.classList.add('is-in');
+                io.unobserve(e.target);
+            });
+        }, { rootMargin: '0px 0px -6% 0px', threshold: 0.05 });
+
+        groups.forEach((g) => {
+            const kids = Array.from(g.children);
+            if (!kids.length || kids.length > 40) return;   // long lists: no
+            // A group inside a display:none subtree (the crawl tracker starts
+            // hidden) must not have its children pre-hidden — if the observer
+            // never fires we'd have made them permanently invisible.
+            if (g.offsetParent === null && getComputedStyle(g).position !== 'fixed') return;
+            g.setAttribute('data-stagger', '');
+            kids.forEach((k, i) => k.style.setProperty('--d', `${i * 0.05}s`));
+            io.observe(g);
+        });
+    }
+
+    /* ---- Magnetic buttons ---------------------------------------------- */
+    function magnetic() {
+        const btns = document.querySelectorAll('.btn-primary, .btn-lg');
+        btns.forEach((b) => {
+            b.classList.add('mag');
+            b.addEventListener('pointermove', (ev) => {
+                const r = b.getBoundingClientRect();
+                const dx = (ev.clientX - (r.left + r.width / 2)) / r.width;
+                const dy = (ev.clientY - (r.top + r.height / 2)) / r.height;
+                b.classList.add('is-pulled');
+                b.style.transform = `translate(${dx * 10}px, ${dy * 6}px)`;
+            });
+            b.addEventListener('pointerleave', () => {
+                b.classList.remove('is-pulled');
+                b.style.transform = '';
+            });
+        });
+    }
+
+    /* ---- Card tilt ------------------------------------------------------ */
+    function tilt() {
+        // Only cards that aren't scroll containers or drag surfaces.
+        const cards = document.querySelectorAll('.home-grid > .card');
+        cards.forEach((c) => {
+            c.classList.add('tilt');
+            c.addEventListener('pointermove', (ev) => {
+                const r = c.getBoundingClientRect();
+                const px = (ev.clientX - r.left) / r.width - 0.5;
+                const py = (ev.clientY - r.top) / r.height - 0.5;
+                c.classList.add('is-tilting');
+                c.style.transform =
+                    `perspective(1100px) rotateX(${-py * 2.4}deg) rotateY(${px * 2.4}deg)`;
+                // feeds the existing pointer-spotlight ::after
+                c.style.setProperty('--mx', `${ev.clientX - r.left}px`);
+                c.style.setProperty('--my', `${ev.clientY - r.top}px`);
+            });
+            c.addEventListener('pointerleave', () => {
+                c.classList.remove('is-tilting');
+                c.style.transform = '';
+            });
+        });
+    }
+
+    /* ---- Belt wipe on outbound navigation ------------------------------ */
+    function pageWipe() {
+        const wipe = document.createElement('div');
+        wipe.className = 'wipe';
+        wipe.innerHTML = '<i></i><i></i><i></i><i></i><i></i><i></i>';
+        document.body.appendChild(wipe);
+
+        function lift() { wipe.classList.remove('is-on', 'is-closing'); }
+
+        document.addEventListener('click', (ev) => {
+            // An inline onclick may already have cancelled this navigation
+            // (result.html guards its back-links that way) — respect it.
+            if (ev.defaultPrevented) return;
+            const a = ev.target.closest && ev.target.closest('a[href]');
+            if (!a) return;
+            const href = a.getAttribute('href');
+            if (!href || href.startsWith('#') || href.startsWith('mailto:')) return;
+            if (a.target === '_blank' || a.hasAttribute('download')) return;
+            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
+            let url;
+            try { url = new URL(a.href, location.href); } catch (_) { return; }
+            if (url.origin !== location.origin) return;
+            if (url.pathname === location.pathname && url.search === location.search) return;
+            // /api/* serves file downloads: the page never unloads, so a
+            // curtain dropped over it would never lift again.
+            if (url.pathname.startsWith('/api/')) return;
+
+            ev.preventDefault();
+            wipe.classList.add('is-on');
+            raf(() => wipe.classList.add('is-closing'));
+            // Navigate on a timer, not on transitionend: a dropped transition
+            // event must never strand the user behind a black curtain.
+            setTimeout(() => { location.href = url.href; }, 430);
+            // Last-resort net: if we're somehow still here, uncover the page.
+            setTimeout(() => { if (!document.hidden) lift(); }, 3000);
+        });
+
+        // Coming back via bfcache would otherwise show the curtain still down.
+        addEventListener('pageshow', (e) => { if (e.persisted) lift(); });
+    }
+
+    ready(() => {
+        scrollBar();
+        splitHeadline();
+        stagger();
+        magnetic();
+        tilt();
+        pageWipe();
+    });
+})();
+
+
+/* ==========================================================================
    Splash controller (ref: trionn.com preloader)
    Belt wipe + slot counter + staggered tagline. Runs once per browser session
    and can be dismissed by click/key — a daily tool shouldn't gate you behind
@@ -327,15 +536,104 @@ const WaitUX = (() => {
     words.forEach((w, i) => setTimeout(() => w.classList.add('visible'), 260 + i * 130));
     dots.forEach((d, i) => setTimeout(() => d.classList.add('visible'), 340 + i * 130));
 
+    /* --- Plus marks fly in from the four screen corners ------------------
+       They're fixed-position clones that travel to the logo box's corners;
+       the box's own marks only fade up once the travellers have landed. */
+    const wrap = pl.querySelector('.pl-logo-wrap');
+    const fliers = [];
+    if (wrap) {
+        const r = wrap.getBoundingClientRect();
+        const dest = [
+            [r.left - 7,  r.top - 7],
+            [r.right + 7, r.top - 7],
+            [r.left - 7,  r.bottom + 7],
+            [r.right + 7, r.bottom + 7],
+        ];
+        const from = [
+            [24, 24],
+            [innerWidth - 24, 24],
+            [24, innerHeight - 24],
+            [innerWidth - 24, innerHeight - 24],
+        ];
+        dest.forEach((d, i) => {
+            const f = document.createElement('span');
+            f.className = 'pl-fly';
+            f.textContent = '+';
+            f.style.left = from[i][0] + 'px';
+            f.style.top = from[i][1] + 'px';
+            document.body.appendChild(f);
+            fliers.push(f);
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                f.style.left = d[0] + 'px';
+                f.style.top = d[1] + 'px';
+            }));
+        });
+        // Hand off to the in-place marks once the travel is over.
+        setTimeout(() => {
+            wrap.classList.add('is-landed');
+            fliers.forEach(f => { f.style.opacity = '0'; });
+            setTimeout(() => fliers.forEach(f => f.remove()), 400);
+        }, 880);
+    }
+
+    /* --- Exit: the logo box travels into the header's logo mark ---------- */
+    function morphToHeader() {
+        const box = pl.querySelector('.pl-logo-box');
+        const boxImg = box && box.querySelector('img');
+        const navImg = document.querySelector('header .logo img');
+        if (!box || !boxImg || !navImg) return false;
+
+        const from = box.getBoundingClientRect();
+        const to = navImg.getBoundingClientRect();
+        if (!to.width || !to.height) return false;   // header not laid out
+
+        // Re-parent to <body> first: .pl.is-done fades .pl-center out, and an
+        // ancestor's opacity would take the travelling box with it.
+        document.body.appendChild(box);
+        // Freeze the box where it already is, then let CSS transition it.
+        box.style.left = from.left + 'px';
+        box.style.top = from.top + 'px';
+        box.style.width = from.width + 'px';
+        box.style.height = from.height + 'px';
+        box.classList.add('is-morphing');
+        navImg.classList.add('is-handoff');
+
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const pad = (from.width - boxImg.getBoundingClientRect().width) / 2;
+            box.style.left = (to.left - pad) + 'px';
+            box.style.top = (to.top - pad) + 'px';
+            box.style.width = (to.width + pad * 2) + 'px';
+            box.style.height = (to.height + pad * 2) + 'px';
+            box.style.borderColor = 'transparent';
+            box.style.background = 'transparent';
+            boxImg.style.width = to.width + 'px';
+            boxImg.style.height = to.height + 'px';
+            boxImg.style.boxShadow = 'none';
+        }));
+
+        // Reveal the real header mark and drop the traveller.
+        setTimeout(() => {
+            navImg.classList.remove('is-handoff');
+            box.remove();
+        }, 820);
+        return true;
+    }
+
     let done = false;
     function finish() {
         if (done) return;
         done = true;
         try { sessionStorage.setItem('pl-seen', '1'); } catch (_) {}
         showCount(100);
+        fliers.forEach(f => f.remove());
+        const morphing = morphToHeader();
         pl.classList.add('is-done');
+        // Let the page's own entrance animations start as the belts lift,
+        // instead of playing out unseen behind them.
+        document.dispatchEvent(new CustomEvent('pl:done'));
         // Remove from the tree once the belts have finished retracting.
-        setTimeout(() => pl.classList.add('is-gone'), 1250);
+        // The morph outlives the belts, so hold the wrapper a little longer.
+        setTimeout(() => pl.classList.add('is-gone'), morphing ? 900 : 1250);
     }
 
     // Count up over ~1s, easing out so it feels like it's loading something.

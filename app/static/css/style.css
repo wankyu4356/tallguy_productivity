@@ -252,7 +252,8 @@ h1 {
     font-weight: 800;
     letter-spacing: -2.2px;
     color: var(--text);
-    background: linear-gradient(180deg, #FFFFFF 30%, #A9D9CF 130%);
+    --h1-grad: linear-gradient(180deg, #FFFFFF 30%, #A9D9CF 130%);
+    background: var(--h1-grad);
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -348,6 +349,10 @@ h3 {
 
 .btn-primary {
     position: relative;
+    /* The shimmer below is parked at translateX(-120%). Without clipping it
+       renders — and, worse, catches clicks — over whatever sits to the left
+       of the button, which on every action bar is the back button. */
+    overflow: hidden;
     background: var(--grad);
     background-size: 160% 160%;
     border: none;
@@ -363,6 +368,7 @@ h3 {
     content: "";
     position: absolute; inset: 0;
     border-radius: inherit;
+    pointer-events: none;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
     transform: translateX(-120%);
     transition: transform .7s var(--ease);
@@ -1156,7 +1162,9 @@ footer p { margin: 0; }
    Motion / entrance
    ========================================================================== */
 
-.card, .ri-category { animation: rise .6s var(--ease-out) both; }
+/* `backwards`, not `both`: a filling animation keeps overriding the inline
+   transform the tilt handler writes, which would kill the hover entirely. */
+.card, .ri-category { animation: rise .6s var(--ease-out) backwards; }
 @keyframes rise {
     from { opacity: 0; transform: translateY(18px) scale(.985); filter: blur(6px); }
     to   { opacity: 1; transform: none; filter: blur(0); }
@@ -2024,4 +2032,317 @@ a.list-row:hover .list-row-chevron { transform: translateX(3px); color: var(--ac
     margin-left: auto;
     font: 400 12px/1 var(--mono);
     color: rgba(255,255,255,.25);
+}
+
+/* ==========================================================================
+   Motion layer II — the "portfolio" pass (ref: trionn.com)
+   trionn's own tokens, read off its stylesheet: expo-out cubic-bezier(.16,1,.3,1)
+   for entrances, cubic-bezier(.22,1,.36,1) for longer travels, blur(8px) as the
+   reveal's second axis, and will-change declared on everything that moves.
+   Everything here is decorative: each block degrades to a static layout, and
+   the reduced-motion query at the end switches the whole file off.
+   ========================================================================== */
+
+/* --- Scroll progress hairline ------------------------------------------- */
+.sx {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    width: 100%;
+    z-index: 300;
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    background: var(--grad);
+    box-shadow: 0 0 12px rgba(var(--g2-rgb),.55);
+    pointer-events: none;
+    will-change: transform;
+}
+
+/* --- Reveal, second generation: blur is the second axis ------------------ */
+.reveal {
+    opacity: 0;
+    transform: translateY(22px) scale(.988);
+    filter: blur(8px);
+    will-change: transform, opacity, filter;
+}
+.reveal.is-in {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+    transition: opacity .8s var(--ease-out),
+                transform .8s var(--ease-out),
+                filter .8s var(--ease-out);
+}
+
+/* Children of a revealed block arrive one after another. */
+[data-stagger] > * {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(6px);
+    will-change: transform, opacity, filter;
+}
+[data-stagger].is-in > * {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+    transition: opacity .65s var(--ease-out) var(--d, 0s),
+                transform .65s var(--ease-out) var(--d, 0s),
+                filter .65s var(--ease-out) var(--d, 0s);
+}
+
+/* --- Headline: per-line mask, per-character lift ------------------------- */
+.hl-line {
+    display: block;
+    overflow: hidden;      /* the mask the characters rise out of */
+    padding-bottom: .06em; /* descenders must not get clipped */
+}
+.hl-char {
+    display: inline-block;
+    white-space: pre;
+    /* A transformed child is painted outside the ancestor's background-clip:
+       text region, so each character has to carry the gradient itself. */
+    background: var(--h1-grad);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    opacity: 0;
+    transform: translateY(105%) rotate(4deg);
+    filter: blur(6px);
+    will-change: transform, opacity, filter;
+}
+.hl-ready .hl-char {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+    transition: opacity .7s var(--expo-slow) var(--d, 0s),
+                transform .9s var(--expo-slow) var(--d, 0s),
+                filter .7s var(--expo-slow) var(--d, 0s);
+}
+
+/* --- Magnetic buttons ---------------------------------------------------- */
+.mag {
+    will-change: transform;
+    transition: transform .5s var(--ease-out), box-shadow var(--dur) var(--ease);
+}
+.mag.is-pulled { transition: transform .12s linear; }
+.mag > * { pointer-events: none; }
+
+/* --- Card tilt ----------------------------------------------------------- */
+.tilt {
+    transform-style: preserve-3d;
+    will-change: transform;
+    transition: transform .6s var(--ease-out);
+}
+.tilt.is-tilting { transition: transform .12s linear; }
+
+/* --- Nav links: underline wipes in from the left ------------------------- */
+header nav a.btn-ghost { position: relative; overflow: hidden; }
+header nav a.btn-ghost::after {
+    content: "";
+    position: absolute;
+    left: 12px; right: 12px; bottom: 9px;
+    height: 1px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    transition: transform .45s var(--ease-out);
+}
+header nav a.btn-ghost:hover::after { transform: scaleX(1); }
+
+/* --- Logo mark breathes on hover ---------------------------------------- */
+header .logo img {
+    transition: transform .6s var(--spring), filter .4s var(--ease);
+    will-change: transform;
+}
+header .logo:hover img {
+    transform: rotate(-8deg) scale(1.08);
+    filter: drop-shadow(0 6px 16px rgba(255,59,65,.5));
+}
+
+/* --- Page-exit wipe: the splash belts, replayed downward ----------------- */
+.wipe {
+    position: fixed;
+    inset: 0;
+    z-index: 8500;
+    display: none;
+    pointer-events: none;
+}
+.wipe.is-on { display: flex; flex-direction: column; pointer-events: all; }
+.wipe i {
+    flex: 1 1 0%;
+    width: 100%;
+    margin-bottom: -1px;
+    padding-bottom: 1px;
+    background: var(--pl-panel);
+    transform: scaleY(0);
+    transform-origin: 50% bottom;
+    will-change: transform;
+    transition: transform .55s var(--expo-slow);
+}
+.wipe.is-closing i { transform: scaleY(1); }
+.wipe.is-closing i:nth-child(1) { transition-delay: .00s }
+.wipe.is-closing i:nth-child(2) { transition-delay: .04s }
+.wipe.is-closing i:nth-child(3) { transition-delay: .08s }
+.wipe.is-closing i:nth-child(4) { transition-delay: .12s }
+.wipe.is-closing i:nth-child(5) { transition-delay: .16s }
+.wipe.is-closing i:nth-child(6) { transition-delay: .20s }
+
+/* --- Splash: plus marks that fly in from the screen corners -------------- */
+.pl-fly {
+    position: fixed;
+    z-index: 9600;
+    font: 400 13px/1 var(--mono);
+    color: rgba(var(--g2-rgb),.9);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    will-change: left, top, opacity, transform;
+    transition: left .85s var(--expo-slow), top .85s var(--expo-slow),
+                opacity .3s var(--ease);
+}
+/* The four in-place marks only appear once the flying ones have landed. */
+.pl-logo-wrap .pl-corner { opacity: 0; animation: none; }
+.pl-logo-wrap.is-landed .pl-corner {
+    animation: pl-plus .5s var(--expo) both;
+}
+
+/* --- Splash exit: the logo box travels to the header logo ---------------- */
+.pl-logo-box.is-morphing {
+    position: fixed;
+    margin: 0;
+    z-index: 9700;
+    transition: left .8s var(--expo-slow), top .8s var(--expo-slow),
+                width .8s var(--expo-slow), height .8s var(--expo-slow),
+                border-color .5s var(--ease), background-color .5s var(--ease);
+    will-change: left, top, width, height;
+}
+.pl-logo-box.is-morphing img {
+    transition: width .8s var(--expo-slow), height .8s var(--expo-slow),
+                border-radius .8s var(--expo-slow);
+    animation: none;
+}
+/* While the box is travelling the header's own mark stays hidden. */
+header .logo img.is-handoff { opacity: 0; }
+
+/* --- Numbers that count up ---------------------------------------------- */
+.tick { font-variant-numeric: tabular-nums; }
+
+/* --- Log lines type themselves in ---------------------------------------- */
+.log-area p {
+    animation: log-in .35s var(--ease-out) both;
+}
+@keyframes log-in {
+    from { opacity: 0; transform: translateX(-6px); filter: blur(3px); }
+    to   { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* --- Checkbox check draws itself ---------------------------------------- */
+.article-checkbox svg path,
+.article-checkbox svg polyline {
+    stroke-dasharray: 22;
+    stroke-dashoffset: 22;
+    transition: stroke-dashoffset .35s var(--ease-out);
+}
+.article-item.selected .article-checkbox svg path,
+.article-item.selected .article-checkbox svg polyline { stroke-dashoffset: 0; }
+
+/* --- One switch turns the whole layer off ------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    .sx { display: none; }
+    .reveal, [data-stagger] > *, .hl-char {
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+        transition: none !important;
+    }
+    .mag, .tilt { transition: none !important; }
+    .wipe { display: none !important; }
+    .log-area p { animation: none; }
+}
+
+/* ==========================================================================
+   Process strip — three cards under the fold on the home page
+   The home page was two cards and 400px of nothing; this fills it with the
+   one thing a first-time user actually needs: what the tool is going to do.
+   ========================================================================== */
+
+.steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 34px;
+}
+@media (max-width: 1000px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+
+.step-card {
+    position: relative;
+    padding: 26px 24px 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    overflow: hidden;
+    transition: border-color .45s var(--ease), transform .5s var(--ease-out),
+                background var(--dur) var(--ease);
+}
+/* Gradient hairline along the top edge, wiping in on hover */
+.step-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: var(--grad);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    transition: transform .6s var(--ease-out);
+}
+.step-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-2);
+    background: var(--surface-2);
+}
+.step-card:hover::before { transform: scaleX(1); }
+
+.step-no {
+    display: block;
+    font: 400 12px/1 var(--mono);
+    letter-spacing: 2px;
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.step-card h3 {
+    margin: 14px 0 8px;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -.5px;
+    color: var(--text);
+}
+.step-card p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-2);
+    word-break: keep-all;   /* Korean wraps on word boundaries, not syllables */
+}
+
+/* The splash's corner-plus motif, carried through to the cards */
+.step-plus {
+    position: absolute;
+    font: 400 11px/1 var(--mono);
+    font-style: normal;
+    color: rgba(var(--g2-rgb),.75);
+    opacity: 0;
+    transition: opacity .4s var(--ease-out), transform .5s var(--ease-out);
+}
+.step-plus.tl { top: 9px;    left: 10px;  transform: translate(-4px,-4px); }
+.step-plus.tr { top: 9px;    right: 10px; transform: translate(4px,-4px); }
+.step-plus.bl { bottom: 9px; left: 10px;  transform: translate(-4px,4px); }
+.step-plus.br { bottom: 9px; right: 10px; transform: translate(4px,4px); }
+.step-card:hover .step-plus { opacity: 1; transform: none; }
+.step-card:hover .step-plus.tr { transition-delay: .05s }
+.step-card:hover .step-plus.bl { transition-delay: .10s }
+.step-card:hover .step-plus.br { transition-delay: .15s }
+
+@media (prefers-reduced-motion: reduce) {
+    .step-card, .step-card::before, .step-plus { transition: none; }
 }
