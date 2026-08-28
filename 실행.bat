@@ -10,6 +10,44 @@ echo    Gateway to Capital Markets
 echo ============================================================
 echo.
 
+REM ---- 0. 프로젝트 폴더 찾기 (배치를 어디에 둬도 동작) -------------------
+REM requirements.txt 가 있는 곳이 진짜 프로젝트 폴더입니다.
+set "REPO="
+
+REM (a) 배치 파일과 같은 폴더
+if exist "%~dp0requirements.txt" set "REPO=%~dp0"
+
+REM (b) 알려진 설치 경로
+if not defined REPO if exist "C:\Users\WD\tallguy_productivity\requirements.txt" set "REPO=C:\Users\WD\tallguy_productivity\"
+
+REM (c) 배치 폴더 바로 아래 한 단계 하위 폴더들
+if not defined REPO (
+    for /d %%D in ("%~dp0*") do (
+        if exist "%%~fD\requirements.txt" set "REPO=%%~fD\"
+    )
+)
+
+REM (d) 사용자 폴더에서 tallguy_productivity 이름으로 탐색
+if not defined REPO (
+    for /d %%D in ("%USERPROFILE%\*tallguy*") do (
+        if exist "%%~fD\requirements.txt" set "REPO=%%~fD\"
+    )
+)
+
+if not defined REPO (
+    echo [문제] 프로젝트 폴더를 찾을 수 없습니다.
+    echo.
+    echo   requirements.txt 가 들어있는 폴더 안에 이 배치 파일을 두고
+    echo   다시 실행하거나, 프로젝트를 아래 경로에 두세요:
+    echo   C:\Users\WD\tallguy_productivity
+    echo.
+    pause
+    exit /b 1
+)
+cd /d "%REPO%"
+echo [0/4] 프로젝트 폴더: %REPO%
+echo.
+
 REM ---- 1. Python 찾기 -----------------------------------------------------
 set "PY="
 py -3 --version >nul 2>&1 && set "PY=py -3"
@@ -28,10 +66,10 @@ if not defined PY (
 echo [1/4] Python 확인 완료
 echo.
 
-REM ---- 2. 가상환경 준비 ---------------------------------------------------
-if not exist ".venv\Scripts\python.exe" (
+REM ---- 2. 가상환경 준비 (프로젝트 폴더 안에) -----------------------------
+if not exist "%REPO%.venv\Scripts\python.exe" (
     echo [2/4] 가상환경 만드는 중... ^(처음 한 번만^)
-    %PY% -m venv .venv
+    %PY% -m venv "%REPO%.venv"
     if errorlevel 1 (
         echo [문제] 가상환경 생성에 실패했습니다.
         pause
@@ -40,27 +78,27 @@ if not exist ".venv\Scripts\python.exe" (
 ) else (
     echo [2/4] 가상환경 확인 완료
 )
-set "VENV_PY=.venv\Scripts\python.exe"
+set "VENV_PY=%REPO%.venv\Scripts\python.exe"
 echo.
 
 REM ---- 3. 의존성 설치 (requirements.txt 가 바뀌었을 때만) -----------------
 set "NEED_INSTALL=1"
-if exist ".venv\.installed" (
-    for /f "delims=" %%A in ('certutil -hashfile requirements.txt MD5 ^| find /v ":" ^| find /v "CertUtil"') do set "REQ_HASH=%%A"
-    set /p SAVED_HASH=<".venv\.installed"
+if exist "%REPO%.venv\.installed" (
+    for /f "delims=" %%A in ('certutil -hashfile "%REPO%requirements.txt" MD5 ^| find /v ":"') do set "REQ_HASH=%%A"
+    set /p SAVED_HASH=<"%REPO%.venv\.installed"
     if "!REQ_HASH!"=="!SAVED_HASH!" set "NEED_INSTALL=0"
 )
 if "!NEED_INSTALL!"=="1" (
     echo [3/4] 필요한 프로그램 설치 중... ^(잠시 걸립니다^)
     "%VENV_PY%" -m pip install --upgrade pip >nul 2>&1
-    "%VENV_PY%" -m pip install -r requirements.txt
+    "%VENV_PY%" -m pip install -r "%REPO%requirements.txt"
     if errorlevel 1 (
         echo [문제] 설치에 실패했습니다. 인터넷 연결을 확인하세요.
         pause
         exit /b 1
     )
-    for /f "delims=" %%A in ('certutil -hashfile requirements.txt MD5 ^| find /v ":" ^| find /v "CertUtil"') do set "REQ_HASH=%%A"
-    > ".venv\.installed" echo !REQ_HASH!
+    for /f "delims=" %%A in ('certutil -hashfile "%REPO%requirements.txt" MD5 ^| find /v ":"') do set "REQ_HASH=%%A"
+    > "%REPO%.venv\.installed" echo !REQ_HASH!
 ) else (
     echo [3/4] 필요한 프로그램 확인 완료
 )
@@ -70,7 +108,7 @@ REM ---- 4. 실행 -----------------------------------------------------------
 echo [4/4] 시작합니다. 브라우저가 자동으로 열립니다.
 echo       종료하려면 이 창을 닫거나 Ctrl+C 를 누르세요.
 echo.
-"%VENV_PY%" launcher.py
+"%VENV_PY%" "%REPO%launcher.py"
 
 echo.
 echo 프로그램이 종료되었습니다.
