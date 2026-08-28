@@ -112,10 +112,21 @@ async def _crawl_task(session_id: str):
         session.progress_messages.append("브라우저에서 더벨 로그인을 완료하세요...")
         _set_progress(session, "login", "더벨 로그인 중")
         t_login = _time.time()
-        login_ok = await login(ctx)
+
+        def on_login_progress(msg: str):
+            """Surface what login is waiting on — notably the device prompt."""
+            if session.progress_messages and session.progress_messages[-1] == msg:
+                return
+            session.progress_messages.append(msg)
+            _set_progress(session, "login", "더벨 로그인 중", detail=msg)
+
+        login_ok = await login(ctx, on_progress=on_login_progress)
         login_elapsed = _time.time() - t_login
         if not login_ok:
-            error_msg = f"더벨 로그인 타임아웃 (5분). 브라우저에서 로그인하세요. (소요: {login_elapsed:.0f}초)"
+            error_msg = (
+                "더벨 로그인을 확인하지 못했습니다. 브라우저 창에서 로그인을 마치고, "
+                f"기기 인증 창이 뜨면 [허용]을 눌러 주세요. (대기: {login_elapsed:.0f}초)"
+            )
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")
             session.status = SessionStatus.ERROR
             session.error = error_msg
@@ -331,10 +342,21 @@ async def _generate_task(session_id: str):
 
         from app.services.crawler import login
         t_login = _time.time()
-        login_ok = await login(ctx)
+
+        def on_login_progress(msg: str):
+            """The device prompt can appear on this pass too."""
+            if session.progress_messages and session.progress_messages[-1] == msg:
+                return
+            session.progress_messages.append(msg)
+            _set_progress(session, "login", "더벨 로그인 중", detail=msg)
+
+        login_ok = await login(ctx, on_progress=on_login_progress)
         login_elapsed = _time.time() - t_login
         if not login_ok:
-            error_msg = f"더벨 로그인 타임아웃 (소요: {login_elapsed:.0f}초)"
+            error_msg = (
+                "더벨 로그인을 확인하지 못했습니다. 브라우저 창에서 로그인을 마치고, "
+                f"기기 인증 창이 뜨면 [허용]을 눌러 주세요. (대기: {login_elapsed:.0f}초)"
+            )
             session.status = SessionStatus.ERROR
             session.error = error_msg
             logger.error(f"{task_stage} 로그인 실패 | elapsed={login_elapsed:.1f}s")

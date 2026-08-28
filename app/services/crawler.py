@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html as _html
 import re
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -44,6 +48,126 @@ SECTION_CODES = [
 
 LOGIN_TIMEOUT = 300  # 5 minutes max wait for manual login
 
+# How long to stay on the page after submitting credentials, so a device
+# approval prompt can be answered. Generous — the user may have to reach for
+# a phone — but well short of the manual-login ceiling.
+DEVICE_AUTH_TIMEOUT = 180
+
+# --- Detail-page fetch over HTTP -------------------------------------------
+# The publish date and the summary both sit in the article HTML (a
+# <span class="date"> and the description meta tag), so they don't need a
+# rendered page. Fetching them directly, a few at a time, replaces one full
+# browser navigation per article.
+DETAIL_HTTP_WORKERS = 4
+DETAIL_HTTP_TIMEOUT = 15
+DETAIL_HTTP_RETRIES = 3
+
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+_DETAIL_DATE_RE = re.compile(
+    r'<span[^>]*class="[^"]*\bdate\b[^"]*"[^>]*>\s*'
+    r'(\d{4}[-.]\d{1,2}[-.]\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)',
+    re.I,
+)
+_DETAIL_DESC_RE = re.compile(
+    r'<meta[^>]+(?:property|name)=["\'](?:og:description|description)["\'][^>]*'
+    r'content=["\'](.*?)["\']',
+    re.I | re.S,
+)
+
+
+def _decode_page(raw: bytes) -> str:
+    """thebell serves UTF-8 today but has historically served EUC-KR."""
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", "replace")
+
+
+def _cookie_header(driver) -> str:
+    """Carry the browser's session into the HTTP fetches."""
+    try:
+        return "; ".join(
+            f"{c['name']}={c['value']}" for c in driver.get_cookies()
+            if c.get("name") and c.get("value") is not None
+        )
+    except Exception:
+        return ""
+
+
+def _http_get(url: str, cookie: str) -> str | None:
+    headers = {"User-Agent": _UA, "Accept-Language": "ko-KR,ko;q=0.9",
+               "Referer": THEBELL_BASE + "/"}
+    if cookie:
+        headers["Cookie"] = cookie
+    last: Exception | None = None
+    for attempt in range(DETAIL_HTTP_RETRIES):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=DETAIL_HTTP_TIMEOUT) as resp:
+                return _decode_page(resp.read())
+        except Exception as e:      # connection resets are common under load
+            last = e
+            time.sleep(0.4 * (attempt + 1))
+    logger.debug(f"상세 HTTP 실패 | url={url} | {type(last).__name__}: {str(last)[:120]}")
+    return None
+
+
+def _extract_detail(page: str) -> tuple[str | None, str | None]:
+    """Pull (date_text, summary) out of an article page's HTML."""
+    date_text = None
+    m = _DETAIL_DATE_RE.search(page)
+    if m:
+        date_text = m.group(1)
+    else:
+        m = re.search(r'(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s+\d{1,2}:\d{2})', page)
+        if m:
+            date_text = m.group(1)
+
+    summary = None
+    m = _DETAIL_DESC_RE.search(page)
+    if m:
+        text = _html.unescape(m.group(1))
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) >= 20:
+            summary = text[:200]
+    return date_text, summary
+
+
+def _fetch_details_over_http(driver, targets: list[ArticleInfo]) -> list[ArticleInfo]:
+    """Resolve date/summary for as many targets as possible without the browser.
+
+    Returns the articles still unresolved, for the caller to retry in the
+    browser — so a blocked or changed page costs accuracy nothing.
+    """
+    if not targets:
+        return []
+    cookie = _cookie_header(driver)
+
+    def work(a: ArticleInfo) -> ArticleInfo | None:
+        page = _http_get(a.url, cookie)
+        if not page:
+            return a
+        date_text, summary = _extract_detail(page)
+        if date_text and not a.published_at:
+            parsed = _parse_datetime(date_text)
+            if parsed:
+                a.published_at = parsed
+        if summary and not a.summary:
+            a.summary = summary
+        still_missing = (not a.published_at) or (not a.summary)
+        return a if still_missing else None
+
+    with ThreadPoolExecutor(max_workers=DETAIL_HTTP_WORKERS) as pool:
+        results = list(pool.map(work, targets))
+    return [a for a in results if a is not None]
+
+
+
+
 # Login URL candidates ordered by likelihood (based on MHTML analysis)
 _LOGIN_URLS = [
     f"{THEBELL_BASE}/LoginCert/Login.asp",
@@ -51,6 +175,138 @@ _LOGIN_URLS = [
     f"{THEBELL_BASE}/free/login/loginForm.asp",
 ]
 
+
+
+# --- Device authorisation ---------------------------------------------------
+# thebell asks you to approve the machine you're signing in from: a prompt
+# appears (in the page or in a popup window) and you press 허용. The old flow
+# navigated to the main page immediately after submitting the form, which
+# threw that prompt away before it could be answered — and then reported a
+# login failure. Nothing here navigates while a prompt may be on screen.
+
+_DEVICE_PROMPT_WORDS = (
+    "기기", "단말", "디바이스", "device",
+    "이 pc", "이 컴퓨터", "등록하시겠", "허용하시겠",
+    "인증번호", "본인확인", "기기인증", "기기 인증",
+)
+_DEVICE_ALLOW_WORDS = ("허용", "확인", "등록", "예", "동의")
+
+
+def _window_handles(driver) -> list[str]:
+    try:
+        return list(driver.window_handles)
+    except Exception:
+        return []
+
+
+def _ensure_live_window(driver) -> None:
+    """Point the driver at a window that still exists.
+
+    If the device-approval popup is closed while the driver is focused on it,
+    every subsequent call raises NoSuchWindowException and the wait loop spins
+    until it times out. Switching back to a surviving handle recovers instead.
+    """
+    try:
+        driver.current_url
+        return
+    except Exception:
+        pass
+    for handle in _window_handles(driver):
+        try:
+            driver.switch_to.window(handle)
+            driver.current_url
+            logger.info(f"[로그인] 닫힌 창에서 복구 | handle={handle[:12]}")
+            return
+        except Exception:
+            continue
+
+
+def _looks_like_device_prompt(driver) -> bool:
+    """Is a device-approval prompt showing in the current window?"""
+    try:
+        text = driver.execute_script(
+            "return (document.body ? document.body.innerText : '').slice(0, 4000);"
+        ) or ""
+    except Exception:
+        return False
+    low = text.lower()
+    if not any(w in low for w in _DEVICE_PROMPT_WORDS):
+        return False
+    return any(w in text for w in _DEVICE_ALLOW_WORDS)
+
+
+def _device_prompt_window(driver, main_handle: str) -> str | None:
+    """Return the handle of a window showing a device prompt, if any.
+
+    Checks popups first — that's where thebell puts it — and leaves the driver
+    focused wherever it found one so the user's click lands on a live window.
+    """
+    handles = _window_handles(driver)
+    ordered = [h for h in handles if h != main_handle] + \
+              ([main_handle] if main_handle in handles else [])
+    for handle in ordered:
+        try:
+            driver.switch_to.window(handle)
+        except Exception:
+            continue
+        if _looks_like_device_prompt(driver):
+            return handle
+    # nothing found — go back to where we started
+    if main_handle in handles:
+        try:
+            driver.switch_to.window(main_handle)
+        except Exception:
+            pass
+    return None
+
+
+def _wait_for_login(
+    driver,
+    timeout: float,
+    on_progress: callable | None = None,
+    stage: str = "[로그인:대기]",
+) -> bool:
+    """Poll for a completed login without touching navigation.
+
+    The browser belongs to the user for the duration: they may be typing
+    credentials, answering the device prompt, or clicking through an
+    interstitial. Any driver.get() here would undo that.
+    """
+    t0 = time.time()
+    main_handle = None
+    for h in _window_handles(driver):
+        main_handle = h
+        break
+    known_handles = set(_window_handles(driver))
+    announced_device = False
+    checks = 0
+
+    while time.time() - t0 < timeout:
+        _ensure_live_window(driver)
+        checks += 1
+
+        if _check_logged_in(driver, quiet=True):
+            logger.info(f"{stage} 성공 | elapsed={time.time()-t0:.1f}s | checks={checks}")
+            return True
+
+        # A new window is almost always the device-approval popup.
+        handles = set(_window_handles(driver))
+        if handles - known_handles:
+            logger.info(f"{stage} 새 창 감지 | {len(handles - known_handles)}개")
+            known_handles = handles
+
+        if not announced_device:
+            found = _device_prompt_window(driver, main_handle or "")
+            if found:
+                announced_device = True
+                logger.info(f"{stage} 기기 인증 창 감지 | handle={found[:12]}")
+                if on_progress:
+                    on_progress("브라우저에 뜬 기기 인증 창에서 [허용]을 눌러 주세요.")
+
+        time.sleep(1)
+
+    logger.warning(f"{stage} 타임아웃 ({timeout:.0f}초) | checks={checks}")
+    return False
 
 
 def _is_error_page(driver) -> bool:
@@ -88,16 +344,25 @@ def _is_error_page(driver) -> bool:
     return False
 
 
-def _check_logged_in(driver) -> bool:
+def _check_logged_in(driver, quiet: bool = False) -> bool:
     """Check if the user is currently logged in.
 
     Strategy (in order):
     1. Check cookies for session tokens (most reliable)
     2. Check for visible logout/mypage elements
     3. Check body text for '로그아웃'
+
+    `quiet` suppresses the per-call logging — the wait loop calls this once a
+    second and would otherwise bury the log in "로그인 안됨" lines.
     """
-    current_url = driver.current_url
-    title = driver.title or "(no title)"
+    try:
+        _ensure_live_window(driver)
+        current_url = driver.current_url
+        title = driver.title or "(no title)"
+    except Exception as e:
+        if not quiet:
+            logger.debug(f"로그인 확인 불가 (창 상태) | {type(e).__name__}: {str(e)[:120]}")
+        return False
 
     # 1) Cookie-based check — only login-specific cookies, NOT generic session cookies
     # ASPSESSIONID is created for ALL visitors, so it must NOT be used here
@@ -161,7 +426,8 @@ def _check_logged_in(driver) -> bool:
     except Exception:
         pass
 
-    logger.info(f"로그인 안됨 | url={current_url} | title={title}")
+    if not quiet:
+        logger.info(f"로그인 안됨 | url={current_url} | title={title}")
     return False
 
 
@@ -320,14 +586,13 @@ def _load_login_page(driver) -> bool:
     return False
 
 
-def _auto_login_sync(driver) -> bool:
+def _auto_login_sync(driver, on_progress: callable | None = None) -> bool:
     """Attempt automatic login using configured credentials.
 
-    Strategy:
-    1. Load login page
-    2. Fill in ID/PW from config
-    3. Click login button
-    4. Verify login success via cookies / page state
+    Submits the form and then *waits in place*. thebell may answer the
+    submission with a device-approval prompt; navigating anywhere at this
+    point destroys it, which is what used to turn a perfectly good login into
+    a failure and a bounce back to the login page.
     """
     stage = "[로그인:자동]"
     t0 = time.time()
@@ -340,128 +605,131 @@ def _auto_login_sync(driver) -> bool:
 
     logger.info(f"{stage} 시작 | user_id={user_id[:3]}***")
     _load_login_page(driver)
-
-    # Wait for login form to be ready
     time.sleep(1)
 
-    # Attempt to fill and submit login form
     form_submitted = _find_login_form_and_fill(driver, user_id, password)
     if not form_submitted:
         logger.warning(f"{stage} 폼 제출 실패 — 수동 로그인으로 전환 | elapsed={time.time()-t0:.1f}s")
         return False
 
-    # Wait for login to process
-    time.sleep(1)
+    time.sleep(1.5)
+    _ensure_live_window(driver)
 
-    # Check whether thebell redirected us to a security-program INSTALL page.
-    # NOTE: the normal login page always shows "보안프로그램이 설치되어 있습니다",
-    # so matching that text falsely flags every login as blocked. Only a real
-    # redirect to an install page (URL) is a reliable block signal.
+    # A redirect to the security-program install page is a real block.
+    # (The normal login page always contains "보안프로그램이 설치되어 있습니다",
+    # so matching that text would flag every login.)
     try:
         if "install" in driver.current_url.lower():
-            logger.warning(f"{stage} 보안 프로그램 설치 페이지로 리다이렉트 | url={driver.current_url} | elapsed={time.time()-t0:.1f}s")
+            logger.warning(
+                f"{stage} 보안 프로그램 설치 페이지로 리다이렉트 | url={driver.current_url} | "
+                f"elapsed={time.time()-t0:.1f}s"
+            )
             return False
     except Exception as e:
         logger.warning(f"{stage} 보안 프로그램 확인 중 오류 | error={type(e).__name__}: {e}")
 
-    # Check for login error messages
+    # Wrong credentials — say so plainly instead of silently waiting 5 minutes.
     try:
         page_source = driver.page_source
-        error_indicators = ["아이디 또는 비밀번호", "로그인 실패", "입력해 주세요", "확인해 주세요"]
-        for ind in error_indicators:
+        for ind in ("아이디 또는 비밀번호", "로그인 실패", "입력해 주세요", "확인해 주세요"):
             if ind in page_source:
                 logger.warning(f"{stage} 로그인 실패 메시지 | match='{ind}' | elapsed={time.time()-t0:.1f}s")
+                if on_progress:
+                    on_progress("⚠ 아이디 또는 비밀번호를 확인해 주세요. 브라우저에서 직접 로그인해 주세요.")
                 return False
     except Exception as e:
         logger.warning(f"{stage} 로그인 오류 확인 중 예외 | error={type(e).__name__}: {e}")
 
-    # Verify login success — ONLY trust page UI indicators, not URL changes
-    # Navigate to main page to check for logout button
-    try:
-        driver.get(THEBELL_BASE)
-    except Exception as e:
-        logger.warning(
-            f"{stage} 로그인 확인 페이지 타임아웃 | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
-        )
-    time.sleep(1)
-
+    # Already through? Then we're done without waiting at all.
     if _check_logged_in(driver):
         logger.info(f"{stage} 성공! | elapsed={time.time()-t0:.1f}s")
         return True
 
-    logger.warning(f"{stage} 결과 불확실 — 수동 로그인으로 전환 | url={driver.current_url} | elapsed={time.time()-t0:.1f}s")
+    # Otherwise sit on the page: a device prompt may be waiting for a click.
+    if _looks_like_device_prompt(driver) or len(_window_handles(driver)) > 1:
+        if on_progress:
+            on_progress("기기 인증이 필요합니다. 브라우저 창에서 [허용]을 눌러 주세요.")
+        logger.info(f"{stage} 기기 인증 대기 중")
+
+    if _wait_for_login(driver, DEVICE_AUTH_TIMEOUT, on_progress, f"{stage}:대기"):
+        logger.info(f"{stage} 성공! | elapsed={time.time()-t0:.1f}s")
+        return True
+
+    logger.warning(
+        f"{stage} 결과 불확실 — 수동 로그인으로 전환 | url={driver.current_url} | "
+        f"elapsed={time.time()-t0:.1f}s"
+    )
     return False
 
 
-def _manual_login_sync(driver, timeout: int = LOGIN_TIMEOUT) -> bool:
-    """Open TheBell and wait for user to log in manually.
+def _manual_login_sync(
+    driver,
+    timeout: int = LOGIN_TIMEOUT,
+    on_progress: callable | None = None,
+) -> bool:
+    """Wait for the user to finish logging in themselves.
 
-    IMPORTANT: Do NOT navigate or use driver.get/back during the wait loop.
-    The user is controlling the browser — we just poll _check_logged_in.
+    Only loads the login page when the browser isn't already somewhere useful:
+    if auto-login left a device prompt or a half-finished form on screen,
+    reloading would throw the user's progress away.
     """
     stage = "[로그인:수동]"
     t0 = time.time()
-    # Load login page once to start
-    _load_login_page(driver)
+
+    _ensure_live_window(driver)
+    on_login_surface = False
+    try:
+        url = (driver.current_url or "").lower()
+        on_login_surface = ("thebell.co.kr" in url
+                            and ("login" in url or "cert" in url or "member" in url))
+    except Exception:
+        pass
+    if len(_window_handles(driver)) > 1 or _looks_like_device_prompt(driver):
+        on_login_surface = True     # a prompt is open — do not navigate
+
+    if not on_login_surface:
+        _load_login_page(driver)
 
     logger.info(f"{stage} 브라우저에서 더벨 로그인을 완료하세요 (최대 {timeout}초 대기)...")
+    if on_progress:
+        on_progress("브라우저에서 더벨 로그인을 완료해 주세요. "
+                    "기기 인증 창이 뜨면 [허용]을 눌러 주세요.")
 
-    last_url = driver.current_url
-    check_count = 0
-    while time.time() - t0 < timeout:
-        try:
-            current_url = driver.current_url
-            check_count += 1
-
-            if current_url != last_url:
-                logger.info(f"{stage} 페이지 이동 감지 | {last_url} → {current_url} | elapsed={time.time()-t0:.1f}s")
-                last_url = current_url
-                time.sleep(1)  # Wait for new page to fully load
-
-            if _check_logged_in(driver):
-                logger.info(f"{stage} 성공! | elapsed={time.time()-t0:.1f}s | checks={check_count}")
-                return True
-
-        except Exception as e:
-            logger.debug(f"{stage} 폴링 오류 | error={type(e).__name__}: {str(e)[:100]} | elapsed={time.time()-t0:.1f}s")
-        time.sleep(1)
-
-    logger.error(f"{stage} 타임아웃 ({timeout}초) | checks={check_count} | last_url={last_url}")
-    return False
+    ok = _wait_for_login(driver, timeout, on_progress, stage)
+    if not ok:
+        logger.error(f"{stage} 타임아웃 ({timeout}초)")
+    return ok
 
 
-def _login_sync(driver) -> bool:
-    """Combined login: try auto-login first, then fall back to manual.
-
-    Flow:
-    1. Try auto-login with configured THEBELL_ID/PW
-    2. If auto-login fails, open browser for manual login
-    """
+def _login_sync(driver, on_progress: callable | None = None) -> bool:
+    """Combined login: try auto-login first, then wait for the user."""
     stage = "[로그인]"
     t0 = time.time()
     logger.info(f"{stage} ===== 로그인 프로세스 시작 =====")
 
-    # Step 1: Try auto-login
     try:
-        if _auto_login_sync(driver):
+        if _auto_login_sync(driver, on_progress):
             logger.info(f"{stage} 자동 로그인으로 완료 | total_elapsed={time.time()-t0:.1f}s")
             return True
     except Exception as e:
         logger.warning(
-            f"{stage} 자동 로그인 중 예외 | error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
+            f"{stage} 자동 로그인 중 예외 | error={type(e).__name__}: {str(e)[:200]} | "
+            f"elapsed={time.time()-t0:.1f}s"
         )
 
-    # Step 2: Fall back to manual login
     logger.info(f"{stage} 수동 로그인 모드로 전환 | elapsed={time.time()-t0:.1f}s")
-    result = _manual_login_sync(driver)
-    logger.info(f"{stage} ===== 로그인 프로세스 종료 | result={'성공' if result else '실패'} | total_elapsed={time.time()-t0:.1f}s =====")
+    result = _manual_login_sync(driver, on_progress=on_progress)
+    logger.info(
+        f"{stage} ===== 로그인 프로세스 종료 | result={'성공' if result else '실패'} | "
+        f"total_elapsed={time.time()-t0:.1f}s ====="
+    )
     return result
 
 
-async def login(context: SeleniumContext) -> bool:
+async def login(context: SeleniumContext, on_progress: callable | None = None) -> bool:
     """Login to TheBell. Tries auto-login first, then manual. Returns True on success."""
     try:
-        return await asyncio.to_thread(_login_sync, context.driver)
+        return await asyncio.to_thread(_login_sync, context.driver, on_progress)
     except Exception as e:
         logger.error(
             f"[로그인] 치명적 오류 | error={type(e).__name__}: {str(e)[:300]}",
@@ -565,6 +833,31 @@ def _navigate_to_main(driver):
     time.sleep(1)
 
 
+# Article links are what every list page is actually waited on for.
+_LIST_READY_CSS = 'a[href*="newsview.asp"], a[href*="NewsView.asp"]'
+
+
+def _wait_for_list(driver, timeout: float = 4.0) -> bool:
+    """Return as soon as the list page has article links.
+
+    pageLoadStrategy is `eager`, so driver.get() comes back at
+    DOMContentLoaded and the rows may land a moment later. The old code paid a
+    flat sleep(1) after every navigation and every page turn; this usually
+    returns in a fraction of that and waits longer only when it has to.
+    """
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, _LIST_READY_CSS))
+        )
+        return True
+    except TimeoutException:
+        return False
+    except Exception:
+        # Never let the optimisation itself break navigation.
+        time.sleep(0.5)
+        return False
+
+
 def _navigate_to_section(driver, section_code: str) -> bool:
     """Navigate directly to a section page by its code.
 
@@ -583,7 +876,7 @@ def _navigate_to_section(driver, section_code: str) -> bool:
             f"error={type(e).__name__}: {str(e)[:200]} | elapsed={time.time()-t0:.1f}s"
         )
         # Page may be partially loaded but still usable — continue
-    time.sleep(1)
+    _wait_for_list(driver)
 
     if _is_error_page(driver):
         logger.error(f"{stage} 에러 페이지 | url={driver.current_url} | title={driver.title} | elapsed={time.time()-t0:.1f}s")
@@ -641,7 +934,7 @@ def _click_next_page(driver) -> bool:
                     """)
                     if result:
                         logger.info(f"JS 페이지네이션: {func}({next_page})")
-                        time.sleep(1)
+                        _wait_for_list(driver)
                         return True
                 except Exception:
                     continue
@@ -662,7 +955,7 @@ def _click_next_page(driver) -> bool:
                         if el.is_displayed():
                             logger.info(f"onclick 페이지네이션 클릭: {next_page}")
                             el.click()
-                            time.sleep(1)
+                            _wait_for_list(driver)
                             return True
             except Exception:
                 pass
@@ -691,7 +984,7 @@ def _click_next_page(driver) -> bool:
                     if link.is_displayed():
                         logger.info(f"다음 페이지 클릭: '{text or title_attr or alt_attr}'")
                         link.click()
-                        time.sleep(1)
+                        _wait_for_list(driver)
                         return True
         except Exception:
             continue
@@ -718,7 +1011,7 @@ def _click_next_page(driver) -> bool:
                             if link.text.strip() == next_num and link.is_displayed():
                                 logger.info(f"페이지 {next_num} 클릭")
                                 link.click()
-                                time.sleep(1)
+                                _wait_for_list(driver)
                                 return True
                 break
     except Exception:
@@ -745,7 +1038,7 @@ def _click_next_page(driver) -> bool:
                     driver.get(next_url)
                 except Exception as e:
                     logger.warning(f"페이지네이션 타임아웃 (부분 로드로 계속): {type(e).__name__}")
-                time.sleep(1)
+                _wait_for_list(driver)
                 return True
     except Exception:
         pass
@@ -926,6 +1219,35 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
     logger.info(f"{stage} 시작 | 대상={len(needs_detail)}개 / 전체={len(articles)}개")
     if on_progress:
         on_progress(f"기사 상세정보 보완 중... ({len(needs_detail)}개)")
+
+    # Fast path: the date and summary live in the article HTML, so fetch them
+    # directly — a few at a time — instead of driving the browser to every
+    # article in turn. Whatever this can't resolve falls through to the
+    # browser loop below, so nothing is lost when a page doesn't cooperate.
+    t_http = time.time()
+    before = len(needs_detail)
+    try:
+        needs_detail = _fetch_details_over_http(driver, needs_detail)
+    except Exception as e:
+        logger.warning(
+            f"{stage} HTTP 보완 실패 — 브라우저로 전체 처리 | {type(e).__name__}: {str(e)[:150]}"
+        )
+    resolved = before - len(needs_detail)
+    logger.info(
+        f"{stage} HTTP 보완 | 해결={resolved}/{before}개 | "
+        f"브라우저 필요={len(needs_detail)}개 | elapsed={time.time()-t_http:.1f}s"
+    )
+    if on_progress:
+        on_progress(f"상세정보 {resolved}/{before}개 빠른 보완 완료")
+
+    if not needs_detail:
+        elapsed = time.time() - t0
+        logger.info(f"{stage} 완료 (HTTP만으로 처리) | elapsed={elapsed:.1f}s")
+        if on_progress:
+            on_progress(f"상세정보 보완 완료 ({elapsed:.0f}초)")
+        return
+
+    logger.info(f"{stage} 브라우저 폴백 시작 | 대상={len(needs_detail)}개")
 
     # Save current URL to return later
     original_url = driver.current_url
@@ -1115,12 +1437,15 @@ def _fetch_article_details(driver, articles: list[ArticleInfo], on_progress=None
 
     elapsed = time.time() - t0
     logger.info(
-        f"{stage} 완료 | 대상={len(needs_detail)}개 | "
+        f"{stage} 완료 | HTTP해결={resolved}개 | 브라우저대상={len(needs_detail)}개 | "
         f"날짜추출={date_fetched}개 | 요약추출={summary_fetched}개 | 시간미포함={no_time_count}개 | "
         f"연속에러={consecutive_errors} | elapsed={elapsed:.1f}s"
     )
     if on_progress:
-        on_progress(f"상세정보 보완: 날짜 {date_fetched}개, 요약 {summary_fetched}개 추출 ({elapsed:.0f}초)")
+        on_progress(
+            f"상세정보 보완: 빠른 처리 {resolved}개 + 브라우저 "
+            f"날짜 {date_fetched}개, 요약 {summary_fetched}개 ({elapsed:.0f}초)"
+        )
 
     # Return to original page
     try:
