@@ -45,12 +45,26 @@ hiddenimports = [
     "uvicorn.lifespan", "uvicorn.lifespan.on",
     "anyio._backends._asyncio",
     "app.routers.health", "app.routers.clipper", "app.routers.setup",
+    # selenium >= 4.28 resolves webdriver.Edge lazily through importlib, so
+    # these never show up in the import graph. Named explicitly so a failure
+    # of collect_submodules below can't silently drop the browser.
+    "selenium.webdriver.edge.webdriver",
+    "selenium.webdriver.edge.options",
+    "selenium.webdriver.edge.service",
+    "selenium.webdriver.chromium.webdriver",
+    "selenium.webdriver.chromium.options",
+    "selenium.webdriver.chromium.service",
+    "selenium.webdriver.remote.webdriver",
+    "selenium.webdriver.common.keys",
+    "selenium.webdriver.common.by",
+    "selenium.webdriver.support.ui",
+    "selenium.webdriver.support.expected_conditions",
 ]
 for pkg in ("pydantic", "pydantic_settings", "anthropic", "selenium", "pypdf", "docx"):
     try:
         hiddenimports += collect_submodules(pkg)
-    except Exception:
-        pass
+    except Exception as exc:  # keep building, but say what was skipped
+        print(f"[spec] WARNING: collect_submodules({pkg!r}) failed: {exc}")
 
 icon_path = ROOT / "app" / "static" / "img" / "thebell.ico"
 

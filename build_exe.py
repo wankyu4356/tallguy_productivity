@@ -159,6 +159,13 @@ def main() -> int:
                "--add-data", f"{ROOT / 'app' / 'templates'}{sep}app/templates",
                "--add-data", f"{ROOT / 'app' / 'static'}{sep}app/static",
                "--collect-data", "selenium", "--collect-data", "reportlab", "--collect-data", "docx",
+               # selenium resolves webdriver.Edge lazily via importlib, so its
+               # submodules are invisible to static analysis. Same for the
+               # pydantic/anthropic plugin lookups.
+               "--collect-submodules", "selenium",
+               "--collect-submodules", "anthropic",
+               "--collect-submodules", "pydantic",
+               "--collect-submodules", "pydantic_settings",
                "--collect-all", "pyarmor_runtime_000000",
                "--hidden-import", "uvicorn.loops.auto",
                "--hidden-import", "uvicorn.protocols.http.auto",
@@ -183,6 +190,10 @@ def main() -> int:
                "--add-data", f"{ROOT / 'app' / 'templates'}{';' if sys.platform == 'win32' else ':'}app/templates",
                "--add-data", f"{ROOT / 'app' / 'static'}{';' if sys.platform == 'win32' else ':'}app/static",
                "--collect-data", "selenium", "--collect-data", "reportlab", "--collect-data", "docx",
+               "--collect-submodules", "selenium",
+               "--collect-submodules", "anthropic",
+               "--collect-submodules", "pydantic",
+               "--collect-submodules", "pydantic_settings",
                "--hidden-import", "uvicorn.loops.auto",
                "--hidden-import", "uvicorn.protocols.http.auto",
                "--hidden-import", "uvicorn.lifespan.on",

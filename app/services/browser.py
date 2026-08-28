@@ -6,6 +6,13 @@ from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
 
+# selenium >= 4.28 resolves `webdriver.Edge` lazily through importlib, so a
+# frozen build's static analysis never sees the concrete module and the exe
+# dies with "No module named 'selenium.webdriver.edge.webdriver'". Importing
+# it by name here makes the dependency visible to PyInstaller. Do not remove.
+from selenium.webdriver.edge.webdriver import WebDriver as _EdgeWebDriver  # noqa: F401
+from selenium.webdriver.edge.service import Service as _EdgeService  # noqa: F401
+
 from app.config import settings
 from app.utils.logging import get_logger
 
