@@ -5,6 +5,8 @@ startup the app sends the user here and writes the file for them.
 """
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -101,3 +103,47 @@ async def save_setup(body: SetupRequest):
         "configured": settings.is_configured,
         "env_path": str(env_file()),
     }
+
+
+class TestRequest(BaseModel):
+    """A key/model pair to verify — falls back to what is already saved."""
+    ANTHROPIC_API_KEY: str = ""
+    CLAUDE_MODEL: str = ""
+
+
+def _probe(api_key: str, model: str) -> tuple[bool, str]:
+    """Send the cheapest possible request to confirm the credentials work."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        client.messages.create(
+            model=model,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return True, f"연결됐어요 · {model}"
+    except anthropic.AuthenticationError:
+        return False, "API 키가 올바르지 않아요. 다시 확인해 주세요."
+    except anthropic.PermissionDeniedError:
+        return False, "이 API 키로는 접근할 수 없어요. 권한을 확인해 주세요."
+    except anthropic.NotFoundError:
+        return False, f"모델을 찾을 수 없어요: {model}"
+    except anthropic.RateLimitError:
+        return True, "키는 정상이지만 지금 요청이 몰려 있어요. 잠시 후 사용하세요."
+    except anthropic.APIConnectionError:
+        return False, "인터넷에 연결되지 않았어요."
+    except Exception as e:  # noqa: BLE001 - surface anything else verbatim
+        return False, f"확인 실패: {type(e).__name__}"
+
+
+@router.post("/api/setup/test")
+async def test_connection(body: TestRequest):
+    api_key = body.ANTHROPIC_API_KEY.strip() or settings.ANTHROPIC_API_KEY
+    model = body.CLAUDE_MODEL.strip() or settings.CLAUDE_MODEL
+    if not api_key:
+        return {"ok": False, "message": "먼저 API 키를 입력해 주세요."}
+
+    ok, message = await asyncio.to_thread(_probe, api_key, model)
+    logger.info(f"연결 테스트: {'성공' if ok else '실패'} — {message}")
+    return {"ok": ok, "message": message}

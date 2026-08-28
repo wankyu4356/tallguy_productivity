@@ -7,6 +7,12 @@
 
     <div class="card">
         <h2>수집 기간</h2>
+        <div class="chips" id="date-chips">
+            <button type="button" class="chip" onclick="setRange(this, 1)">최근 1일</button>
+            <button type="button" class="chip" onclick="setRange(this, 2)">최근 2일</button>
+            <button type="button" class="chip" onclick="setRange(this, 3)">최근 3일</button>
+            <button type="button" class="chip" onclick="setRange(this, 7)">최근 7일</button>
+        </div>
         <div class="date-info">
             <div class="date-inputs">
                 <input type="datetime-local" id="date-from" value="{{ date_from_str }}">
@@ -122,34 +128,27 @@
     {% if sessions %}
     <div class="card">
         <h2>최근 작업</h2>
-        <table class="session-table">
-            <thead>
-                <tr>
-                    <th>세션 ID</th>
-                    <th>상태</th>
-                    <th>생성일시</th>
-                    <th>기사 수</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for sid, s in sessions.items() %}
-                <tr>
-                    <td>{{ sid[:8] }}...</td>
-                    <td><span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span></td>
-                    <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                    <td>{{ s.articles | length }}</td>
-                    <td>
-                        {% if s.status.value == 'crawl_done' or s.status.value == 'recommend_done' %}
-                        <a href="/review/{{ sid }}" class="btn btn-sm">기사 선택</a>
-                        {% elif s.status.value == 'done' %}
-                        <a href="/result/{{ sid }}" class="btn btn-sm">다운로드</a>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="list">
+            {% for sid, s in sessions.items() %}
+            {% set target = '/review/' ~ sid if s.status.value in ('crawl_done', 'recommend_done')
+                            else ('/review-index/' ~ sid if s.status.value == 'review_ready'
+                            else ('/result/' ~ sid if s.status.value == 'done'
+                            else '/progress/' ~ sid)) %}
+            <a class="list-row" href="{{ target }}">
+                <span class="badge badge-{{ s.status.value }}">{{ s.status | status_label }}</span>
+                <span class="list-row-main">
+                    <span class="list-row-title">
+                        {% if s.date_from %}{{ s.date_from.strftime('%m월 %d일') }}{% else %}클리핑{% endif %}
+                        {%- if s.date_to %} ~ {{ s.date_to.strftime('%m월 %d일') }}{% endif %}
+                    </span>
+                    <span class="list-row-sub">
+                        기사 {{ s.articles | length }}개 · {{ s.created_at.strftime('%H:%M') }} 시작
+                    </span>
+                </span>
+                <span class="list-row-chevron">›</span>
+            </a>
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 </div>
@@ -157,6 +156,27 @@
 
 {% block scripts %}
 <script>
+function pad(n) { return String(n).padStart(2, '0'); }
+function toLocalValue(d) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+           `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function setRange(btn, days) {
+    const to = new Date();
+    const from = new Date(to.getTime() - days * 86400000);
+    document.getElementById('date-from').value = toLocalValue(from);
+    document.getElementById('date-to').value = toLocalValue(to);
+    document.querySelectorAll('#date-chips .chip').forEach(c => c.classList.remove('on'));
+    btn.classList.add('on');
+}
+document.addEventListener('DOMContentLoaded', () => {
+    ['date-from', 'date-to'].forEach(id => {
+        document.getElementById(id).addEventListener('input', () => {
+            document.querySelectorAll('#date-chips .chip').forEach(c => c.classList.remove('on'));
+        });
+    });
+});
+
 let crawlStartTime = null;
 let timerInterval = null;
 let stageStartTimes = {};
