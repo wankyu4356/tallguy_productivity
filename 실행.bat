@@ -46,6 +46,15 @@ if not defined REPO (
 )
 cd /d "%REPO%"
 echo [0/4] 프로젝트 폴더: %REPO%
+
+REM ---- 최신 코드 받기 (git 이 있고 인터넷이 되면) --------------------------
+where git >nul 2>&1
+if not errorlevel 1 (
+    if exist "%REPO%.git" (
+        echo       최신 버전 확인 중...
+        git -C "%REPO%." pull --ff-only >nul 2>&1
+    )
+)
 echo.
 
 REM ---- 1. Python 찾기 -----------------------------------------------------
