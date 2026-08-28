@@ -70,17 +70,27 @@ python build_exe.py --obfuscate --allow-trial
 
 ---
 
-## 소스로 실행하기
+## 소스로 실행하기 (제일 쉬움)
+
+**`실행.bat` 을 더블클릭하세요.** 그게 전부입니다.
+
+처음 실행하면 자동으로:
+
+1. Python 확인
+2. 가상환경(.venv) 생성
+3. 필요한 프로그램 설치
+4. 앱 실행 + 브라우저 자동 열기
+
+두 번째부터는 1~3을 건너뛰고 바로 실행됩니다(`requirements.txt` 가 바뀌면 그때만 다시 설치). Python 3.11 이상만 미리 깔려 있으면 됩니다 — 없으면 배치가 안내해 줍니다.
+
+`.env` 는 없어도 됩니다. 없으면 브라우저 설정 화면이 먼저 열려 API 키를 입력받습니다.
+
+### 직접 명령어로 실행 (선택)
 
 ```bash
 pip install -r requirements.txt
-python preflight.py       # 환경 점검 후 서버 실행까지
-# 또는
 python launcher.py
 ```
-
-`.env` 는 없어도 됩니다. 없으면 브라우저 설정 화면이 먼저 열립니다.
-미리 만들어 두려면 `.env.example` 을 복사해서 값을 채우세요.
 
 ---
 
