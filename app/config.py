@@ -5,10 +5,12 @@ from pydantic_settings import BaseSettings
 
 from app.utils.paths import data_path, env_file
 
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5"
 
 _RETIRED_MODELS = {
     "claude-sonnet-4-20250514": DEFAULT_CLAUDE_MODEL,
+    "claude-sonnet-4-5": DEFAULT_CLAUDE_MODEL,
+    "claude-sonnet-4-6": DEFAULT_CLAUDE_MODEL,
     "claude-sonnet-4-6-20250627": DEFAULT_CLAUDE_MODEL,
     "claude-3-5-sonnet-20241022": DEFAULT_CLAUDE_MODEL,
     "claude-3-5-sonnet-20240620": DEFAULT_CLAUDE_MODEL,

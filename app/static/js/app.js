@@ -283,3 +283,73 @@ const WaitUX = (() => {
         });
     });
 })();
+
+
+/* ==========================================================================
+   Splash controller (ref: trionn.com preloader)
+   Belt wipe + slot counter + staggered tagline. Runs once per browser session
+   and can be dismissed by click/key — a daily tool shouldn't gate you behind
+   an intro every time.
+   ========================================================================== */
+(function () {
+    const pl = document.getElementById('pl');
+    if (!pl) return;
+
+    const SKIP = (() => {
+        try { return sessionStorage.getItem('pl-seen') === '1'; } catch (_) { return false; }
+    })();
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (SKIP || reduced) {
+        pl.classList.add('is-done', 'is-gone');
+        return;
+    }
+
+    // Build each reel's 0-9 strip so the digits can roll like an odometer.
+    const strips = Array.from(pl.querySelectorAll('.pl-strip'));
+    strips.forEach(strip => {
+        strip.innerHTML = Array.from({ length: 11 }, (_, n) => `<i>${n % 10}</i>`).join('');
+    });
+
+    const DIGIT_H = 16;
+    const rail = document.getElementById('pl-rail-fill');
+    function showCount(n) {
+        const v = Math.min(100, Math.max(0, n));
+        const s = String(v).padStart(3, '0');
+        strips.forEach((strip, i) => {
+            strip.style.transform = `translateY(-${Number(s[i]) * DIGIT_H}px)`;
+        });
+        if (rail) rail.style.transform = `scaleX(${v / 100})`;
+    }
+
+    const words = Array.from(pl.querySelectorAll('.pl-word'));
+    const dots = Array.from(pl.querySelectorAll('.pl-dot'));
+    words.forEach((w, i) => setTimeout(() => w.classList.add('visible'), 260 + i * 130));
+    dots.forEach((d, i) => setTimeout(() => d.classList.add('visible'), 340 + i * 130));
+
+    let done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        try { sessionStorage.setItem('pl-seen', '1'); } catch (_) {}
+        showCount(100);
+        pl.classList.add('is-done');
+        // Remove from the tree once the belts have finished retracting.
+        setTimeout(() => pl.classList.add('is-gone'), 1250);
+    }
+
+    // Count up over ~1s, easing out so it feels like it's loading something.
+    const START = performance.now();
+    const DURATION = 1000;
+    (function tick(now) {
+        const t = Math.min(1, ((now || START) - START) / DURATION);
+        showCount(Math.round((1 - Math.pow(1 - t, 3)) * 100));
+        if (t < 1) requestAnimationFrame(tick);
+        else setTimeout(finish, 160);
+    })(START);
+
+    // Escape hatches
+    pl.addEventListener('click', finish);
+    window.addEventListener('keydown', finish, { once: true });
+    setTimeout(finish, 2600);   // hard ceiling, never trap the user
+})();

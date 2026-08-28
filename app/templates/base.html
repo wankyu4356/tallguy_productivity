@@ -3,14 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#FAFAFA">
+    <meta name="theme-color" content="#04090A">
     <title>{% block title %}더벨 News Clipper{% endblock %}</title>
     <link rel="icon" type="image/png" href="/static/img/thebell-logo.png">
     <link rel="apple-touch-icon" href="/static/img/thebell-logo.png">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260828">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260828e">
     {% block head %}{% endblock %}
 </head>
 <body>
+    <!-- Splash: belt wipe + corner-plus logo + slot counter (once per session) -->
+    <div class="pl" id="pl" aria-hidden="true">
+        <div class="pl-belts" id="pl-belts">
+            <i class="pl-belt"></i><i class="pl-belt"></i><i class="pl-belt"></i>
+            <i class="pl-belt"></i><i class="pl-belt"></i><i class="pl-belt"></i>
+        </div>
+        <div class="pl-center">
+            <div class="pl-logo-wrap">
+                <div class="pl-logo-box">
+                    <img src="/static/img/thebell-logo.png" alt="">
+                </div>
+                <span class="pl-corner tl">+</span><span class="pl-corner tr">+</span>
+                <span class="pl-corner bl">+</span><span class="pl-corner br">+</span>
+            </div>
+            <div class="pl-tagline" id="pl-tagline">
+                <span class="pl-word">COLLECT</span><span class="pl-dot">·</span>
+                <span class="pl-word">CLASSIFY</span><span class="pl-dot">·</span>
+                <span class="pl-word">CLIP</span>
+            </div>
+        </div>
+        <div class="pl-rail"><span class="pl-rail-fill" id="pl-rail-fill"></span></div>
+        <div class="pl-counter" id="pl-counter">
+            <span class="pl-reel"><span class="pl-strip" data-d="0"></span></span>
+            <span class="pl-reel"><span class="pl-strip" data-d="1"></span></span>
+            <span class="pl-reel"><span class="pl-strip" data-d="2"></span></span>
+            <span class="pl-pct">%</span>
+        </div>
+    </div>
+
     <header>
         <nav>
             <a href="/" class="logo">
@@ -30,7 +59,7 @@
     <footer>
         <p>더벨 Daily News Clipping · Gateway to Capital Markets</p>
     </footer>
-    <script src="/static/js/app.js?v=20260828"></script>
+    <script src="/static/js/app.js?v=20260828e"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
