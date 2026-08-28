@@ -17,8 +17,6 @@
         </div>
     </div>
 
-    <nav class="ri-nav" id="section-nav"></nav>
-
     <div class="ri-toolbar">
         <span class="ri-toolbar-hint">
             기사를 클릭해 선택하세요. <kbd>Shift</kbd>+클릭으로 범위, <kbd>Ctrl</kbd>+클릭으로 개별 선택.
@@ -28,7 +26,10 @@
         <button class="btn btn-sm btn-ghost" onclick="toggleDensity()" id="btn-density">간략히 보기</button>
     </div>
 
-    <div id="classification-tree"></div>
+    <div class="layout layout--wide">
+        <aside class="rail" id="section-nav"></aside>
+        <div id="classification-tree"></div>
+    </div>
 
     <!-- Bulk bar: appears only while something is selected -->
     <div class="ri-bulk" id="bulk-bar">
@@ -138,21 +139,75 @@ function renderTree(tree) {
         }
 
         container.appendChild(catCard);
-
-        // Nav button
-        const navBtn = document.createElement('a');
-        navBtn.className = `ri-nav-btn ri-theme-${catIdx % 8}`;
-        navBtn.href = `#${catId}`;
-        navBtn.innerHTML = `${cat.name}<span class="ri-nav-count">${catArticleCount}</span>`;
-        navBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            document.getElementById(catId).scrollIntoView({ behavior: 'smooth' });
-        });
-        nav.appendChild(navBtn);
     });
 
+    buildRail();
     buildMoveMenu();
     clearSelection();
+}
+
+/* The rail keeps every section — and its count — in view on a wide screen, so
+   navigating a long index never means scrolling back to the top. Each row is
+   also a drop target, which is the shortest path for a single article. */
+function buildRail() {
+    const rail = document.getElementById('section-nav');
+    if (!rail) return;
+    rail.innerHTML = '<div class="rail-title">섹션</div>';
+
+    document.querySelectorAll('.ri-category').forEach((card, catIdx) => {
+        const catBtn = document.createElement('button');
+        catBtn.type = 'button';
+        catBtn.className = `rail-item is-cat ri-theme-${catIdx % 8}`;
+        const catName = card.querySelector('.ri-cat-name').textContent;
+        catBtn.title = catName;
+        catBtn.innerHTML =
+            `<span class="rail-label">${escapeHtml(catName)}</span>` +
+            `<span class="rail-count" data-count-for="cat-${catIdx}"></span>`;
+        catBtn.addEventListener('click', () => {
+            card.classList.remove('is-collapsed');
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        rail.appendChild(catBtn);
+
+        card.querySelectorAll('.ri-article-list').forEach(list => {
+            const parts = (list.dataset.destLabel || '').split(' › ');
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'rail-item ' + (parts.length >= 3 ? 'is-item' : 'is-sub');
+            row.title = list.dataset.destLabel || '';
+            row.innerHTML =
+                `<span class="rail-label">${escapeHtml(parts[parts.length - 1] || '기타')}</span>` +
+                `<span class="rail-count" data-count-for="${list.dataset.dest}"></span>`;
+            row.addEventListener('click', () => {
+                card.classList.remove('is-collapsed');
+                list.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+            makeRailDropTarget(row, list);
+            rail.appendChild(row);
+        });
+    });
+
+    const note = document.createElement('div');
+    note.innerHTML = '<div class="rail-sep"></div>' +
+        '<div class="rail-note">기사를 여기로 끌어다 놓아도 옮겨져요.</div>';
+    rail.appendChild(note);
+    updateNavCounts();
+}
+
+function makeRailDropTarget(row, targetList) {
+    new Sortable(row, {
+        group: { name: 'articles', pull: false, put: true },
+        sort: false,
+        onAdd: function (evt) {
+            const item = evt.item;
+            const from = evt.from;
+            row.removeChild(item);              // the rail only receives; it never keeps
+            targetList.appendChild(item);
+            renumberList(targetList);
+            if (from) renumberList(from);
+            updateNavCounts();
+        },
+    });
 }
 
 function escapeHtml(str) {
@@ -188,9 +243,12 @@ function createSortableList(articles, label) {
         forceAutoScrollFallback: true,
         onStart: function() {
             document.querySelectorAll('.ri-article-list').forEach(l => l.classList.add('ri-drop-active'));
+            document.querySelectorAll('.rail-item.is-sub, .rail-item.is-item')
+                .forEach(r => r.classList.add('is-drop-target'));
         },
         onEnd: function(evt) {
             document.querySelectorAll('.ri-article-list').forEach(l => l.classList.remove('ri-drop-active'));
+            document.querySelectorAll('.rail-item').forEach(r => r.classList.remove('is-drop-target'));
             if (evt.from) renumberList(evt.from);
             if (evt.to && evt.to !== evt.from) renumberList(evt.to);
             updateNavCounts();
@@ -250,12 +308,13 @@ function removeArticle(btn) {
 }
 
 function updateNavCounts() {
-    const catCards = document.querySelectorAll('.ri-category');
-    const navBtns = document.querySelectorAll('.ri-nav-btn');
-    catCards.forEach((card, idx) => {
-        const count = card.querySelectorAll('.ri-article-item').length;
-        const countEl = navBtns[idx]?.querySelector('.ri-nav-count');
-        if (countEl) countEl.textContent = count;
+    document.querySelectorAll('.ri-category').forEach((card, idx) => {
+        const el = document.querySelector(`[data-count-for="cat-${idx}"]`);
+        if (el) el.textContent = card.querySelectorAll('.ri-article-item').length;
+    });
+    document.querySelectorAll('.ri-article-list').forEach(list => {
+        const el = document.querySelector(`[data-count-for="${list.dataset.dest}"]`);
+        if (el) el.textContent = list.querySelectorAll('.ri-article-item').length;
     });
 }
 

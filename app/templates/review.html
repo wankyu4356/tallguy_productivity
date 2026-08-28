@@ -8,6 +8,22 @@
         · 총 <strong>{{ session.articles | length }}개</strong> 수집됨
     </p>
 
+    <div class="layout">
+    <aside class="rail">
+        <div class="rail-title">카테고리</div>
+        {% for cat_name, cat_articles in categories.items() %}
+        <a class="rail-item is-sub" href="#cat-{{ loop.index0 }}" title="{{ cat_name }}">
+            <span class="rail-label">{{ cat_name }}</span>
+            <span class="rail-count">{{ cat_articles | length }}</span>
+        </a>
+        {% endfor %}
+        <div class="rail-sep"></div>
+        <div class="rail-note">
+            선택 <strong id="rail-sel" style="color: var(--blue);">0</strong>
+            / {{ session.articles | length }}개
+        </div>
+    </aside>
+    <div>
     <div class="card">
         <div class="tabs">
             <div class="tab active" data-tab="recommend" onclick="switchTab('recommend')">AI 추천</div>
@@ -42,7 +58,7 @@
         <div id="tab-recommend" class="tab-content">
             {% if session.recommendations %}
             {% for cat_name, cat_articles in categories.items() %}
-            <div class="category-group">
+            <div class="category-group" id="cat-{{ loop.index0 }}">
                 <h3>{{ cat_name }}</h3>
                 <ul class="article-list">
                     {% for a in cat_articles %}
@@ -104,6 +120,9 @@
             </div>
             {% endfor %}
         </div>
+    </div>
+
+    </div>
     </div>
 
     <div class="action-bar">

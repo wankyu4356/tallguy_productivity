@@ -39,6 +39,8 @@ function updateSelectionCount() {
     if (countEl) {
         countEl.textContent = `${checkedIds.size} / ${uniqueIds.size} 선택됨`;
     }
+    const railEl = document.getElementById('rail-sel');
+    if (railEl) railEl.textContent = checkedIds.size;
 }
 
 function switchTab(tabName) {

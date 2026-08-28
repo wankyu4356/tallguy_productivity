@@ -104,7 +104,7 @@ header {
 }
 
 header nav {
-    max-width: 1080px;
+    max-width: 1320px;
     margin: 0 auto;
     height: var(--nav-h);
     padding: 0 20px;
@@ -149,25 +149,25 @@ main { min-height: calc(100vh - var(--nav-h) - 90px); }
    ========================================================================== */
 
 .container {
-    max-width: 1080px;
+    max-width: 1320px;
     margin: 0 auto;
-    padding: 28px 20px 40px;
+    padding: 26px 28px 40px;
 }
 /* Leave room so the sticky action bar never covers the final element. */
 .container:has(.action-bar) { padding-bottom: 8px; }
-.container--narrow { max-width: 760px; }
+.container--narrow { max-width: 980px; }
 
 /* Large iOS-style page title */
 h1 {
-    margin: 4px 0 6px;
-    font-size: 30px;
-    line-height: 1.28;
+    margin: 2px 0 5px;
+    font-size: 26px;
+    line-height: 1.3;
     font-weight: 800;
     letter-spacing: -.035em;
     color: var(--text);
 }
 .page-sub {
-    margin: 0 0 22px;
+    margin: 0 0 18px;
     color: var(--text-2);
     font-size: 15px;
 }
@@ -188,8 +188,8 @@ h3 {
 .card {
     background: var(--surface);
     border-radius: var(--r-md);
-    padding: 22px;
-    margin-bottom: 16px;
+    padding: 20px 22px;
+    margin-bottom: 14px;
     box-shadow: var(--shadow-sm);
 }
 .card--flush { padding: 0; overflow: hidden; }
@@ -634,7 +634,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); font-weight: 4
 .article-item {
     display: flex;
     gap: 13px;
-    padding: 14px 12px;
+    padding: 11px 12px;
     margin: 0 -12px;
     border-radius: var(--r-sm);
     transition: background var(--dur) var(--ease);
@@ -737,7 +737,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); font-weight: 4
    Review Index (drag & drop)
    ========================================================================== */
 
-.ri-container { max-width: 1180px; }
+.ri-container { max-width: 1640px; }
 
 .ri-header {
     display: flex;
@@ -1378,3 +1378,127 @@ body.is-compact .ri-article-summary { display: none; }
 body.is-compact .ri-article-body { padding: 7px 12px; }
 body.is-compact .ri-article-list { gap: 4px; }
 body.is-compact .ri-category { padding: 16px 20px 10px; }
+
+
+/* ==========================================================================
+   Desktop layout — sidebar + content
+   The window is wide; a sticky rail keeps navigation and counts in view
+   instead of forcing a scroll back to the top.
+   ========================================================================== */
+
+.layout {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    gap: 22px;
+    align-items: start;
+}
+.layout--wide { grid-template-columns: 268px minmax(0, 1fr); }
+
+.rail {
+    position: sticky;
+    top: calc(var(--nav-h) + 22px);
+    max-height: calc(100vh - var(--nav-h) - 44px);
+    overflow-y: auto;
+    padding: 14px;
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    scrollbar-width: thin;
+}
+.rail-title {
+    padding: 2px 8px 10px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.rail-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    border-radius: var(--r-xs);
+    background: transparent;
+    color: var(--text-2);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.rail-item:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
+.rail-item.is-cat { margin-top: 6px; color: var(--accent, var(--text)); font-weight: 700; }
+.rail-item.is-cat:first-child { margin-top: 0; }
+.rail-item.is-sub { padding-left: 20px; font-weight: 500; font-size: 13px; }
+.rail-item.is-item { padding-left: 32px; font-weight: 500; font-size: 12.5px; color: var(--text-3); }
+.rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-count {
+    flex-shrink: 0;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 6px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: var(--r-full);
+    background: var(--surface-sunken);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.rail-item:hover .rail-count { background: #E8ECF0; }
+.rail-sep { height: 1px; margin: 10px 4px; background: var(--border); }
+.rail-note { padding: 4px 10px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
+
+/* A rail row is also a drop target while dragging. */
+.rail-item.is-drop-target {
+    background: var(--blue-soft);
+    color: var(--blue-strong);
+    box-shadow: inset 0 0 0 2px rgba(49,130,246,.35);
+}
+
+/* The group header already names the category, so the per-row chip is noise —
+   dropping it keeps title, badge and date on one line. */
+.tab-content .category-tag { display: none; }
+
+/* Two columns of articles once the window is wide enough to read them */
+@media (min-width: 1560px) {
+    .tab-content .article-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 28px;
+    }
+    .tab-content .article-item + .article-item { border-top: none; }
+    .tab-content .article-item { border-bottom: 1px solid var(--border); align-content: start; }
+}
+
+/* Collapse the rail on narrower windows */
+@media (max-width: 1100px) {
+    .layout, .layout--wide { grid-template-columns: minmax(0, 1fr); }
+    .rail {
+        position: static;
+        max-height: none;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 10px;
+    }
+    .rail-title, .rail-sep, .rail-note { display: none; }
+    .rail-item { width: auto; white-space: nowrap; padding: 7px 12px; border-radius: var(--r-full); }
+    .rail-item.is-sub, .rail-item.is-item { padding-left: 12px; }
+}
+
+
+/* Dashboard: form on the left, history on the right */
+.home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+}
+@media (max-width: 1100px) {
+    .home-grid { grid-template-columns: minmax(0, 1fr); }
+}
