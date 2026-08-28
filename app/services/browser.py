@@ -26,6 +26,84 @@ Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US
 Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
 """
 
+# thebell identifies the machine by asking for a browser permission — the
+# 차단/허용 bar that drops under the address bar. That prompt is browser chrome,
+# not page content: Selenium cannot see it and cannot click it, and while it is
+# open the page just waits. So the permission is granted up front, per origin,
+# and the prompt never appears.
+THEBELL_ORIGINS = (
+    "https://www.thebell.co.kr",
+    "https://thebell.co.kr",
+)
+
+# Granted for those origins only. `notifications` is the one thebell uses for
+# device registration; the rest are the other prompts a site can raise, listed
+# so an unexpected one doesn't silently stall the login.
+_GRANTED_PERMISSIONS = [
+    "notifications",
+    "clipboardReadWrite",
+    "clipboardSanitizedWrite",
+]
+
+# Records what the page actually asked for, so the log can say which permission
+# was in play if the flow ever changes.
+_PERMISSION_PROBE_JS = """
+(function () {
+  window.__permAsks = [];
+  try {
+    var orig = Notification && Notification.requestPermission;
+    if (orig) {
+      Notification.requestPermission = function () {
+        window.__permAsks.push('notifications');
+        return orig.apply(Notification, arguments);
+      };
+    }
+  } catch (e) {}
+  try {
+    var q = navigator.permissions && navigator.permissions.query;
+    if (q) {
+      navigator.permissions.query = function (d) {
+        try { window.__permAsks.push('query:' + (d && d.name)); } catch (e) {}
+        return q.apply(navigator.permissions, arguments);
+      };
+    }
+  } catch (e) {}
+})();
+"""
+
+
+def grant_thebell_permissions(driver) -> bool:
+    """Pre-approve thebell's permission prompt for this browser.
+
+    Returns True if at least one origin was granted. Failure is not fatal —
+    the user can still click 허용 themselves — so this only warns.
+    """
+    granted = False
+    for origin in THEBELL_ORIGINS:
+        try:
+            driver.execute_cdp_cmd(
+                "Browser.grantPermissions",
+                {"origin": origin, "permissions": _GRANTED_PERMISSIONS},
+            )
+            granted = True
+        except Exception as e:
+            logger.debug(f"권한 사전 허용 실패 | origin={origin} | {type(e).__name__}: {e}")
+    if granted:
+        logger.info(f"더벨 권한 사전 허용 완료 | {', '.join(_GRANTED_PERMISSIONS)}")
+    else:
+        logger.warning(
+            "권한 사전 허용에 실패했습니다 — 브라우저에 차단/허용 창이 뜨면 [허용]을 눌러 주세요."
+        )
+    return granted
+
+
+def permission_requests(driver) -> list[str]:
+    """What the current page asked permission for, if anything."""
+    try:
+        return driver.execute_script("return window.__permAsks || [];") or []
+    except Exception:
+        return []
+
 
 def _clean_profile_locks(profile_dir: Path) -> None:
     """Remove stale Singleton lock files left by a previously crashed/closed
@@ -76,6 +154,15 @@ class BrowserManager:
         self._experimental = {
             "excludeSwitches": ["enable-automation"],
             "useAutomationExtension": False,
+            # Fallback for the CDP grant below, verified to work on its own.
+            # Unlike the CDP grant this is a profile-wide default rather than
+            # per-origin — acceptable because this profile exists only to drive
+            # thebell, and the alternative is a 차단/허용 bar parked in front of
+            # a login that no code can click past. 1 = allow, 2 = block, 0 = ask.
+            "prefs": {
+                "profile.default_content_setting_values.notifications": 1,
+                "profile.default_content_setting_values.clipboard": 1,
+            },
         }
 
         # Warm-up WITHOUT the persistent profile. The warm-up only triggers the
@@ -145,6 +232,17 @@ class BrowserManager:
             )
         except Exception as e:
             logger.debug(f"CDP stealth injection skipped: {e}")
+
+        # Answer thebell's device-permission prompt before it can be asked.
+        if use_profile:
+            grant_thebell_permissions(driver)
+            try:
+                driver.execute_cdp_cmd(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    {"source": _PERMISSION_PROBE_JS},
+                )
+            except Exception as e:
+                logger.debug(f"권한 프로브 주입 생략: {e}")
 
         return driver
 

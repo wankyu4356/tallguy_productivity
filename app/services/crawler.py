@@ -24,7 +24,9 @@ from selenium.common.exceptions import (
 
 from app.config import settings
 from app.models.schemas import ArticleInfo
-from app.services.browser import SeleniumContext
+from app.services.browser import (
+    SeleniumContext, grant_thebell_permissions, permission_requests,
+)
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -178,11 +180,14 @@ _LOGIN_URLS = [
 
 
 # --- Device authorisation ---------------------------------------------------
-# thebell asks you to approve the machine you're signing in from: a prompt
-# appears (in the page or in a popup window) and you press 허용. The old flow
-# navigated to the main page immediately after submitting the form, which
-# threw that prompt away before it could be answered — and then reported a
-# login failure. Nothing here navigates while a prompt may be on screen.
+# thebell identifies the machine by raising a browser permission prompt — the
+# 차단/허용 bar under the address bar. That prompt is browser chrome, so nothing
+# here can see or click it; it is pre-answered at driver creation instead
+# (browser.grant_thebell_permissions). What remains below covers the rest of
+# the flow: an in-page confirmation, a popup window, and the rule that we never
+# navigate while the user may be answering something. The old flow loaded the
+# main page immediately after submitting the form, throwing any such prompt
+# away before it could be answered and then reporting a login failure.
 
 _DEVICE_PROMPT_WORDS = (
     "기기", "단말", "디바이스", "device",
@@ -281,9 +286,19 @@ def _wait_for_login(
     announced_device = False
     checks = 0
 
+    seen_permission_asks: set[str] = set()
+
     while time.time() - t0 < timeout:
         _ensure_live_window(driver)
         checks += 1
+
+        # If the page asks for a permission we didn't pre-grant, the browser
+        # will park a 차단/허용 bar that no code can reach. Name it in the log
+        # so it can be added to the granted set.
+        for ask in permission_requests(driver):
+            if ask not in seen_permission_asks:
+                seen_permission_asks.add(ask)
+                logger.info(f"{stage} 페이지가 요청한 권한: {ask}")
 
         if _check_logged_in(driver, quiet=True):
             logger.info(f"{stage} 성공 | elapsed={time.time()-t0:.1f}s | checks={checks}")
@@ -648,7 +663,8 @@ def _auto_login_sync(driver, on_progress: callable | None = None) -> bool:
     # Otherwise sit on the page: a device prompt may be waiting for a click.
     if _looks_like_device_prompt(driver) or len(_window_handles(driver)) > 1:
         if on_progress:
-            on_progress("기기 인증이 필요합니다. 브라우저 창에서 [허용]을 눌러 주세요.")
+            on_progress("기기 인증 대기 중입니다. 브라우저에 차단/허용 알림이 "
+                        "보이면 [허용]을 눌러 주세요.")
         logger.info(f"{stage} 기기 인증 대기 중")
 
     if _wait_for_login(driver, DEVICE_AUTH_TIMEOUT, on_progress, f"{stage}:대기"):
@@ -693,7 +709,7 @@ def _manual_login_sync(
     logger.info(f"{stage} 브라우저에서 더벨 로그인을 완료하세요 (최대 {timeout}초 대기)...")
     if on_progress:
         on_progress("브라우저에서 더벨 로그인을 완료해 주세요. "
-                    "기기 인증 창이 뜨면 [허용]을 눌러 주세요.")
+                    "주소창 아래에 차단/허용 알림이 뜨면 [허용]을 눌러 주세요.")
 
     ok = _wait_for_login(driver, timeout, on_progress, stage)
     if not ok:
@@ -706,6 +722,10 @@ def _login_sync(driver, on_progress: callable | None = None) -> bool:
     stage = "[로그인]"
     t0 = time.time()
     logger.info(f"{stage} ===== 로그인 프로세스 시작 =====")
+
+    # Idempotent — the driver already did this at creation. Repeated here so a
+    # context built by another path still gets the prompt answered.
+    grant_thebell_permissions(driver)
 
     try:
         if _auto_login_sync(driver, on_progress):
