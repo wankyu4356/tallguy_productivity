@@ -52,21 +52,95 @@ def check_requirements() -> None:
         raise SystemExit(1)
 
 
+OBF_DIR = ROOT / "build" / "obf"
+
+
+def obfuscate() -> Path:
+    """Obfuscate the app package + launcher with PyArmor, returning the build root.
+
+    Refuses to proceed on a trial license: trial-obfuscated code is watermarked,
+    time-limited and not licensed for distribution, so shipping it would hand the
+    user a legal and reliability problem. A purchased license lifts both.
+    """
+    try:
+        out = subprocess.run(["pyarmor", "--version"], capture_output=True, text=True)
+        banner = (out.stdout + out.stderr)
+    except FileNotFoundError:
+        print("PyArmor가 설치되어 있지 않습니다.  pip install pyarmor  후 라이선스를 등록하세요.")
+        raise SystemExit(1)
+
+    if "trial" in banner.lower():
+        print("=" * 60)
+        print("  PyArmor가 체험판(trial) 상태입니다.")
+        print("  체험판으로 난독화한 코드는 워터마크가 찍히고 배포 라이선스가")
+        print("  없어, 배포용 빌드에 사용할 수 없습니다.")
+        print("  정식 라이선스 등록 후 다시 실행하세요:  pyarmor reg <license>")
+        print("=" * 60)
+        raise SystemExit(1)
+
+    if OBF_DIR.exists():
+        shutil.rmtree(OBF_DIR, ignore_errors=True)
+    OBF_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("PyArmor로 난독화 중...")
+    # Obfuscate the whole app package and the launcher into build/obf/.
+    subprocess.check_call([
+        "pyarmor", "gen",
+        "--output", str(OBF_DIR),
+        "--recursive",
+        str(ROOT / "app"),
+        str(ROOT / "launcher.py"),
+    ])
+    print(f"난독화 완료: {OBF_DIR}")
+    return OBF_DIR
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--onedir", action="store_true",
                     help="폴더 형태로 빌드 (실행이 빠름, 배포는 폴더 통째로)")
     ap.add_argument("--clean", action="store_true", help="빌드 캐시 삭제 후 진행")
+    ap.add_argument("--obfuscate", action="store_true",
+                    help="PyArmor로 코드를 난독화한 뒤 빌드 (PyArmor 라이선스 필요)")
     args = ap.parse_args()
 
     check_requirements()
     ensure_pyinstaller()
+
+    obf_root = None
+    if args.obfuscate:
+        obf_root = obfuscate()
 
     if args.clean:
         for path in (BUILD, DIST):
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
                 print(f"삭제: {path}")
+
+    if obf_root is not None:
+        # Build the obfuscated tree. The PyArmor runtime package must ride along.
+        sep = ";" if sys.platform == "win32" else ":"
+        cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile",
+               "--name", "TheBellNewsClipper",
+               "--icon", str(ROOT / "app" / "static" / "img" / "thebell.ico"),
+               "--distpath", str(DIST), "--workpath", str(BUILD / "pyi"),
+               "--paths", str(obf_root),
+               "--add-data", f"{ROOT / 'app' / 'templates'}{sep}app/templates",
+               "--add-data", f"{ROOT / 'app' / 'static'}{sep}app/static",
+               "--collect-data", "selenium", "--collect-data", "reportlab", "--collect-data", "docx",
+               "--collect-submodules", "pyarmor_runtime_000000",
+               "--hidden-import", "uvicorn.loops.auto",
+               "--hidden-import", "uvicorn.protocols.http.auto",
+               "--hidden-import", "uvicorn.lifespan.on",
+               "--hidden-import", "app.routers.setup",
+               "--strip", "--console",
+               str(obf_root / "launcher.py")]
+        print("빌드 시작 (난독화)... (몇 분 걸립니다)\n")
+        result = subprocess.run(cmd, cwd=ROOT)
+        if result.returncode != 0:
+            print("\n빌드 실패."); return result.returncode
+        _report(DIST / EXE_NAME, obfuscated=True)
+        return 0
 
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
            str(ROOT / "thebell_clipper.spec")]
@@ -91,14 +165,20 @@ def main() -> int:
         return result.returncode
 
     target = DIST / ("TheBellNewsClipper" if args.onedir else EXE_NAME)
+    _report(target, obfuscated=False)
+    return 0
+
+
+def _report(target: Path, obfuscated: bool) -> None:
     print("\n" + "=" * 56)
-    print("  빌드 완료!")
+    print("  빌드 완료!" + ("  (난독화됨)" if obfuscated else ""))
     print(f"  결과: {target}")
     if target.exists() and target.is_file():
         print(f"  크기: {target.stat().st_size / 1_000_000:.0f} MB")
+    if not obfuscated:
+        print("  보호: 소스(.py) 미포함 · 바이트코드 -OO 컴파일 · 심볼 제거")
     print("=" * 56)
     print("\n실행하면 브라우저가 열리고, 첫 화면에서 Claude API 키를 입력하면 됩니다.")
-    return 0
 
 
 if __name__ == "__main__":
