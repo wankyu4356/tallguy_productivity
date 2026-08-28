@@ -20,6 +20,7 @@
     <div class="ri-toolbar">
         <span class="ri-toolbar-hint">
             기사를 클릭해 선택하세요. <kbd>Shift</kbd>+클릭으로 범위, <kbd>Ctrl</kbd>+클릭으로 개별 선택.
+            원문은 오른쪽 <span class="ri-hint-icon">↗</span> 로 열립니다.
         </span>
         <span class="spacer"></span>
         <button class="btn btn-sm btn-ghost" onclick="toggleAllSections()" id="btn-collapse">전체 접기</button>
@@ -276,12 +277,17 @@ function createArticleItem(art, idx) {
         <div class="ri-article-body">
             <div class="ri-article-num">${idx + 1}</div>
             <div class="ri-article-info">
-                <div class="ri-article-title">
-                    <a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>
-                </div>
+                <div class="ri-article-title">${escapeHtml(art.title)}</div>
                 ${summary}
             </div>
             ${catTag}
+            <a class="ri-open-btn" title="원문 보기 (새 탭)" target="_blank" rel="noopener"
+               href="${escapeHtml(art.url)}">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                    <path d="M8 4H5a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1v-3"/>
+                    <path d="M12 3h5v5"/><path d="M9 11l8-8"/>
+                </svg>
+            </a>
             <button class="ri-delete-btn" title="기사 제거" onclick="removeArticle(this)">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
                     <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>

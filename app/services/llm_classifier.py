@@ -1,3 +1,9 @@
+# `callable | None` in the signatures below is only legal at runtime under
+# Python 3.14's lazy annotations; the other service modules already opt in
+# to postponed evaluation, and this one has to as well.
+from __future__ import annotations
+
+import asyncio
 import json
 import time
 import anthropic
@@ -117,6 +123,28 @@ def _get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
+def _get_async_client() -> anthropic.AsyncAnthropic:
+    return anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+
+# How many recommendation batches may be in flight at once. Six keeps a
+# ~200-article run to two waves without crowding the account's rate limit.
+RECOMMEND_CONCURRENCY = 6
+
+# Small batches on purpose: the wall-clock cost of a batch is dominated by how
+# many output tokens it has to write, and the batches now run in parallel.
+RECOMMEND_BATCH_SIZE = 20
+
+# output_config/effort needs anthropic >= 1.x and a 4.6+ model. If the running
+# combination rejects it we stop sending it instead of failing every batch.
+_EFFORT_SUPPORTED = True
+
+
+def _disable_effort() -> None:
+    global _EFFORT_SUPPORTED
+    _EFFORT_SUPPORTED = False
+
+
 async def recommend_articles(
     articles: list[ArticleInfo],
     max_count: int | None = None,
@@ -124,27 +152,38 @@ async def recommend_articles(
 ) -> list[ArticleRecommendation]:
     """Use Claude to recommend which articles are worth including.
 
+    Batches run concurrently against the async client. Previously they ran one
+    after another on the *sync* client from inside an async function, which
+    both serialised the round trips and blocked the event loop — the SSE
+    progress stream couldn't even flush while this was running.
+
     Args:
         articles: List of articles to evaluate.
         max_count: If given, recommend approximately this many articles.
+        on_step: Called as (done, total, message) as batches complete.
     """
     if not articles:
         return []
 
-    client = _get_client()
+    client = _get_async_client()
 
-    # Split articles into batches to avoid exceeding max_tokens.
-    # Each recommendation ≈ 30-50 tokens; 4096 tokens fits ~80 articles safely.
-    batch_size = 60
-    all_recommendations: list[ArticleRecommendation] = []
-    total_batches = (len(articles) + batch_size - 1) // batch_size
+    batch_size = RECOMMEND_BATCH_SIZE
+    batches = [articles[i:i + batch_size] for i in range(0, len(articles), batch_size)]
+    total_batches = len(batches)
+    sem = asyncio.Semaphore(RECOMMEND_CONCURRENCY)
+    done_count = 0
+    started = time.monotonic()
 
-    for batch_start in range(0, len(articles), batch_size):
-        batch = articles[batch_start:batch_start + batch_size]
-        batch_no = batch_start // batch_size + 1
-        if on_step:
-            on_step(batch_no - 1, total_batches,
-                    f"{len(batch)}개 기사 분석 중 ({batch_no}/{total_batches}번째 묶음)")
+    def _fallback(batch: list[ArticleInfo]) -> list[ArticleRecommendation]:
+        """Never drop articles on failure — show them and let the user pick."""
+        return [
+            ArticleRecommendation(article_id=a.id, recommended=True,
+                                  reason="자동 추천 실패 - 수동 선택 필요")
+            for a in batch
+        ]
+
+    async def run_batch(batch_no: int, batch: list[ArticleInfo]) -> list[ArticleRecommendation]:
+        nonlocal done_count
         batch_text = "\n".join([
             f"[{a.id}] {a.title} (카테고리: {a.subcategory})\n  요약: {a.summary or '없음'}"
             for a in batch
@@ -153,14 +192,16 @@ async def recommend_articles(
         batch_count_instruction = ""
         if max_count is not None:
             batch_ratio = max_count * len(batch) / len(articles)
-            batch_count_instruction = f"\n\n**중요: 이 묶음 {len(batch)}개 기사 중 약 {int(batch_ratio)}개 내외로 추천해주세요.**"
+            batch_count_instruction = (
+                f"\n\n**중요: 이 묶음 {len(batch)}개 기사 중 약 {int(batch_ratio)}개 내외로 추천해주세요.**"
+            )
 
         batch_prompt = f"""다음 기사 목록에서 PE 투자 전문가에게 유의미한 기사를 추천해주세요.{batch_count_instruction}
 
 기사 목록:
 {batch_text}
 
-다음 JSON 형식으로 응답해주세요:
+다음 JSON 형식으로 응답해주세요. reason 은 25자 이내로 짧게 쓰세요.
 {{
   "recommendations": [
     {{
@@ -171,50 +212,78 @@ async def recommend_articles(
   ]
 }}"""
 
-        try:
-            response = client.messages.create(
-                model=settings.CLAUDE_MODEL,
-                max_tokens=16384,
-                system=RECOMMEND_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": batch_prompt}],
-            )
+        create_kwargs = dict(
+            model=settings.CLAUDE_MODEL,
+            # ~20 recommendations of a short reason each; generous but not so
+            # large that a runaway response costs a minute.
+            max_tokens=4096,
+            system=RECOMMEND_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": batch_prompt}],
+        )
+        if _EFFORT_SUPPORTED:
+            # Triage against a fixed rubric — this does not need the default
+            # deep-thinking pass, and that pass was most of the wall-clock
+            # cost per batch.
+            create_kwargs["output_config"] = {"effort": "low"}
 
-            # Newer models (Sonnet 5+) run adaptive thinking by default, so the
-            # first content block can be a ThinkingBlock — find the text block.
-            text = next(
-                (b.text for b in response.content if getattr(b, "type", None) == "text"),
-                "",
-            )
-            json_match = _extract_json(text)
-            if json_match:
-                data = json.loads(json_match)
-                batch_recs = [
-                    ArticleRecommendation(**r)
-                    for r in data.get("recommendations", [])
-                ]
-                all_recommendations.extend(batch_recs)
-                rec_count = sum(1 for r in batch_recs if r.recommended)
-                logger.info(f"Recommend batch {batch_start // batch_size + 1}: {rec_count}/{len(batch_recs)} recommended")
-            else:
-                logger.warning(f"Recommend batch {batch_start // batch_size + 1}: JSON extraction failed, marking batch for manual selection")
-                all_recommendations.extend([
-                    ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요")
-                    for a in batch
-                ])
-        except Exception as e:
-            logger.error(f"LLM recommendation batch failed: {e}", exc_info=True)
-            all_recommendations.extend([
-                ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요")
-                for a in batch
-            ])
+        async with sem:
+            t0 = time.monotonic()
+            try:
+                try:
+                    response = await client.messages.create(**create_kwargs)
+                except (TypeError, anthropic.BadRequestError) as e:
+                    if "output_config" not in create_kwargs:
+                        raise
+                    # An older SDK or model won't take output_config — drop it
+                    # for the rest of the run rather than failing every batch.
+                    logger.warning(f"output_config 미지원 — effort 없이 재시도: {e}")
+                    _disable_effort()
+                    create_kwargs.pop("output_config", None)
+                    response = await client.messages.create(**create_kwargs)
+                text = next(
+                    (b.text for b in response.content if getattr(b, "type", None) == "text"),
+                    "",
+                )
+                json_match = _extract_json(text)
+                if json_match:
+                    data = json.loads(json_match)
+                    recs = [ArticleRecommendation(**r) for r in data.get("recommendations", [])]
+                    picked = sum(1 for r in recs if r.recommended)
+                    logger.info(
+                        f"Recommend batch {batch_no}/{total_batches}: "
+                        f"{picked}/{len(recs)} recommended ({time.monotonic() - t0:.1f}s)"
+                    )
+                else:
+                    logger.warning(
+                        f"Recommend batch {batch_no}/{total_batches}: JSON extraction failed"
+                    )
+                    recs = _fallback(batch)
+            except Exception as e:
+                logger.error(f"Recommend batch {batch_no}/{total_batches} failed: {e}", exc_info=True)
+                recs = _fallback(batch)
 
+        done_count += 1
         if on_step:
-            on_step(batch_no, total_batches, f"{batch_no}/{total_batches}번째 묶음 완료")
+            on_step(done_count, total_batches,
+                    f"{done_count}/{total_batches}번째 묶음 완료")
+        return recs
+
+    if on_step:
+        on_step(0, total_batches,
+                f"{len(articles)}개 기사를 {total_batches}개 묶음으로 나눠 동시 분석 중")
+
+    # gather preserves order, so the recommendations come back in article order.
+    results = await asyncio.gather(*(run_batch(i + 1, b) for i, b in enumerate(batches)))
+    all_recommendations = [rec for group in results for rec in group]
+
+    logger.info(
+        f"Recommend done: {len(all_recommendations)} recommendations from "
+        f"{total_batches} batches in {time.monotonic() - started:.1f}s"
+    )
 
     if all_recommendations:
         return all_recommendations
-
-    return [ArticleRecommendation(article_id=a.id, recommended=True, reason="자동 추천 실패 - 수동 선택 필요") for a in articles]
+    return _fallback(articles)
 
 
 async def classify_articles(
@@ -234,7 +303,7 @@ async def classify_articles(
     if not articles:
         return ClassifiedOutput()
 
-    client = _get_client()
+    client = _get_async_client()
 
     content_limit = 4000 if strict else 1500
     articles_text = "\n---\n".join([
@@ -453,7 +522,7 @@ article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중
             if attempt > 0:
                 wait = 2 ** attempt
                 logger.info(f"Classification retry {attempt}/2, waiting {wait}s...")
-                time.sleep(wait)
+                await asyncio.sleep(wait)
 
             create_kwargs = dict(
                 model=settings.CLAUDE_MODEL,
@@ -468,12 +537,12 @@ article_order는 Deal → Industry → Fundraising 순서로, 각 섹션 내 중
                 logger.info("재분류: adaptive thinking 활성화")
 
             try:
-                response = client.messages.create(**create_kwargs)
+                response = await client.messages.create(**create_kwargs)
             except (TypeError, anthropic.BadRequestError) as e:
                 logger.warning(f"thinking 설정 미지원 — 일반 호출로 폴백: {e}")
                 create_kwargs.pop("thinking", None)
                 create_kwargs["max_tokens"] = 16384
-                response = client.messages.create(**create_kwargs)
+                response = await client.messages.create(**create_kwargs)
 
             text = next(
                 (b.text for b in response.content if getattr(b, "type", None) == "text"),

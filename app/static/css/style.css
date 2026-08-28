@@ -2346,3 +2346,37 @@ header .logo img.is-handoff { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
     .step-card, .step-card::before, .step-plus { transition: none; }
 }
+
+/* ==========================================================================
+   Article row: the whole row selects, the arrow opens the original
+   The headline used to be an <a>, which swallowed every click on the most
+   obvious target in the row — clicking a title selected nothing, and
+   Ctrl+clicking one opened a tab instead of toggling the selection.
+   ========================================================================== */
+
+.ri-open-btn {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease),
+                color var(--dur) var(--ease);
+}
+.ri-open-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    text-decoration: none;
+}
+/* Revealed on row hover, and always present for keyboard users. */
+.ri-article-item:hover .ri-open-btn,
+.ri-open-btn:focus-visible { opacity: 1; }
+
+.ri-hint-icon {
+    font-family: var(--mono);
+    color: var(--accent-ink);
+}
