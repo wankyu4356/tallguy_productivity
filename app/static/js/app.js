@@ -253,3 +253,33 @@ const WaitUX = (() => {
     return { mount, start, onState, finish, askNotifyPermission, notify,
              get active() { return active; } };
 })();
+
+
+/* Scroll reveal — sections fade up as they enter the viewport.
+   Elements are only hidden once the observer is confirmed available, so a
+   browser without IntersectionObserver simply shows everything immediately. */
+(function () {
+    if (!('IntersectionObserver' in window)) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const targets = document.querySelectorAll('.card, .ri-category, .category-group');
+        if (!targets.length) return;
+
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach((e) => {
+                if (!e.isIntersecting) return;
+                e.target.classList.add('is-in');
+                io.unobserve(e.target);
+            });
+        }, { rootMargin: '0px 0px -8% 0px', threshold: 0.02 });
+
+        targets.forEach((el, i) => {
+            // Anything already on screen skips the animation entirely.
+            if (el.getBoundingClientRect().top < window.innerHeight * 0.9) return;
+            el.classList.add('reveal');
+            el.style.transitionDelay = `${Math.min(i, 4) * 60}ms`;
+            io.observe(el);
+        });
+    });
+})();

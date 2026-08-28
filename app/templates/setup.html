@@ -98,7 +98,7 @@ function payload() {
 function showMsg(text, kind) {
     const el = document.getElementById('setup-msg');
     const bg = kind === 'ok' ? 'var(--green-soft)' : 'var(--red-soft)';
-    const fg = kind === 'ok' ? '#0A8F5B' : 'var(--red)';
+    const fg = kind === 'ok' ? '#0E9F6E' : 'var(--red)';
     el.style.cssText = `background:${bg}; color:${fg}; box-shadow:none; display:block;`;
     el.textContent = text;
 }
@@ -133,7 +133,7 @@ async function testConnection() {
             }),
         });
         const data = await res.json();
-        out.style.color = data.ok ? '#0A8F5B' : 'var(--red)';
+        out.style.color = data.ok ? '#0E9F6E' : 'var(--red)';
         out.textContent = (data.ok ? '✓ ' : '✕ ') + data.message;
 
         const card = document.getElementById('status-card');
