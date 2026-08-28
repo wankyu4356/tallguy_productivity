@@ -53,6 +53,13 @@ def check_requirements() -> None:
 
 
 OBF_DIR = ROOT / "build" / "obf"
+_ALLOW_TRIAL = False
+
+# PyArmor's trial license has a ~40KB cumulative code budget, so a trial build
+# can only protect the crown-jewel module rather than the whole tree. This is
+# the file with the real IP — the classification prompts and logic. With a paid
+# license, expand this to the full package (or obfuscate `app` recursively).
+OBF_FILES = ["app/services/llm_classifier.py"]
 
 
 def obfuscate() -> Path:
@@ -70,28 +77,48 @@ def obfuscate() -> Path:
         raise SystemExit(1)
 
     if "trial" in banner.lower():
+        if not _ALLOW_TRIAL:
+            print("=" * 60)
+            print("  PyArmor가 체험판(trial) 상태입니다.")
+            print("  체험판 난독화 코드는 워터마크가 찍히고 배포가 금지됩니다.")
+            print("  개인용/테스트용으로 진행하려면 --allow-trial 을 붙이세요.")
+            print("  배포하려면 정식 라이선스 등록:  pyarmor reg <license>")
+            print("=" * 60)
+            raise SystemExit(1)
         print("=" * 60)
-        print("  PyArmor가 체험판(trial) 상태입니다.")
-        print("  체험판으로 난독화한 코드는 워터마크가 찍히고 배포 라이선스가")
-        print("  없어, 배포용 빌드에 사용할 수 없습니다.")
-        print("  정식 라이선스 등록 후 다시 실행하세요:  pyarmor reg <license>")
+        print("  ⚠  PyArmor 체험판으로 난독화합니다 (개인용/테스트용).")
+        print("     이 빌드는 배포하지 마세요 — 체험판은 배포 라이선스가 없습니다.")
         print("=" * 60)
-        raise SystemExit(1)
 
     if OBF_DIR.exists():
         shutil.rmtree(OBF_DIR, ignore_errors=True)
     OBF_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("PyArmor로 난독화 중...")
-    # Obfuscate the whole app package and the launcher into build/obf/.
-    subprocess.check_call([
-        "pyarmor", "gen",
-        "--output", str(OBF_DIR),
-        "--recursive",
-        str(ROOT / "app"),
-        str(ROOT / "launcher.py"),
-    ])
-    print(f"난독화 완료: {OBF_DIR}")
+    # A full plain copy of the app to build against — obfuscated files are then
+    # swapped in over the top, so unprotected modules still ship as bytecode.
+    shutil.copytree(ROOT / "app", OBF_DIR / "app")
+    shutil.copy2(ROOT / "launcher.py", OBF_DIR / "launcher.py")
+
+    stage = OBF_DIR / "_pa"
+    runtime_copied = False
+    for rel in OBF_FILES:
+        print(f"PyArmor 난독화: {rel}")
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
+        subprocess.check_call([
+            "pyarmor", "gen", "--output", str(stage), str(ROOT / rel),
+        ])
+        # Swap the obfuscated module in over the plain copy.
+        name = Path(rel).name
+        shutil.copy2(stage / name, OBF_DIR / rel)
+        # The PyArmor runtime is shared across all obfuscated modules.
+        if not runtime_copied:
+            for rt in stage.glob("pyarmor_runtime_*"):
+                shutil.copytree(rt, OBF_DIR / rt.name)
+                runtime_copied = True
+    shutil.rmtree(stage, ignore_errors=True)
+
+    print(f"난독화 완료: {len(OBF_FILES)}개 모듈 → {OBF_DIR}")
     return OBF_DIR
 
 
@@ -102,20 +129,24 @@ def main() -> int:
     ap.add_argument("--clean", action="store_true", help="빌드 캐시 삭제 후 진행")
     ap.add_argument("--obfuscate", action="store_true",
                     help="PyArmor로 코드를 난독화한 뒤 빌드 (PyArmor 라이선스 필요)")
+    ap.add_argument("--allow-trial", action="store_true",
+                    help="PyArmor 체험판으로도 난독화 진행 (개인용/테스트용, 배포 금지)")
     args = ap.parse_args()
 
     check_requirements()
     ensure_pyinstaller()
-
-    obf_root = None
-    if args.obfuscate:
-        obf_root = obfuscate()
 
     if args.clean:
         for path in (BUILD, DIST):
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
                 print(f"삭제: {path}")
+
+    obf_root = None
+    if args.obfuscate:
+        global _ALLOW_TRIAL
+        _ALLOW_TRIAL = args.allow_trial
+        obf_root = obfuscate()
 
     if obf_root is not None:
         # Build the obfuscated tree. The PyArmor runtime package must ride along.
@@ -128,7 +159,7 @@ def main() -> int:
                "--add-data", f"{ROOT / 'app' / 'templates'}{sep}app/templates",
                "--add-data", f"{ROOT / 'app' / 'static'}{sep}app/static",
                "--collect-data", "selenium", "--collect-data", "reportlab", "--collect-data", "docx",
-               "--collect-submodules", "pyarmor_runtime_000000",
+               "--collect-all", "pyarmor_runtime_000000",
                "--hidden-import", "uvicorn.loops.auto",
                "--hidden-import", "uvicorn.protocols.http.auto",
                "--hidden-import", "uvicorn.lifespan.on",
