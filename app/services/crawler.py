@@ -197,6 +197,41 @@ _DEVICE_PROMPT_WORDS = (
 _DEVICE_ALLOW_WORDS = ("허용", "확인", "등록", "예", "동의")
 
 
+# thebell's own failure dialog, the one that says
+#   "로그인에 문제가 발생했습니다 / 아래 두 가지 장애요인을 확인해주세요"
+# and then names (1) 권한설정 문제 and (2) 보안프로그램 설치 문제. It is page
+# content, so unlike the browser's permission bar this one can be read — and
+# it tells the user exactly which of the two is wrong instead of leaving them
+# with a five-minute timeout.
+_LOGIN_BLOCKED_MARKERS = ("로그인에 문제가 발생했습니다", "장애요인을 확인")
+_PERMISSION_CAUSE = "권한설정"
+_SECURITY_CAUSE = "보안프로그램"
+
+
+def _login_blocked_notice(driver) -> str | None:
+    """Return advice if thebell is showing its login-blocked dialog."""
+    try:
+        text = driver.execute_script(
+            "return (document.body ? document.body.innerText : '').slice(0, 6000);"
+        ) or ""
+    except Exception:
+        return None
+    if not any(m in text for m in _LOGIN_BLOCKED_MARKERS):
+        return None
+
+    causes = []
+    if _PERMISSION_CAUSE in text:
+        causes.append("브라우저 권한(로컬 네트워크 연결 허용)")
+    if _SECURITY_CAUSE in text:
+        causes.append("보안프로그램(thebell launcher) 설치·실행")
+    detail = " / ".join(causes) if causes else "권한 또는 보안프로그램"
+    return (
+        f"⚠ 더벨이 로그인을 막았습니다 — {detail} 문제입니다. "
+        "권한은 자동으로 허용해 두었으니, 보안프로그램이 설치·실행 중인지 "
+        "확인한 뒤 [확인]을 누르고 다시 로그인해 주세요."
+    )
+
+
 def _window_handles(driver) -> list[str]:
     try:
         return list(driver.window_handles)
@@ -284,6 +319,7 @@ def _wait_for_login(
         break
     known_handles = set(_window_handles(driver))
     announced_device = False
+    announced_blocked = False
     checks = 0
 
     seen_permission_asks: set[str] = set()
@@ -303,6 +339,16 @@ def _wait_for_login(
         if _check_logged_in(driver, quiet=True):
             logger.info(f"{stage} 성공 | elapsed={time.time()-t0:.1f}s | checks={checks}")
             return True
+
+        # thebell says outright when it has blocked the login — relay that
+        # rather than sitting here until the timeout.
+        if not announced_blocked:
+            notice = _login_blocked_notice(driver)
+            if notice:
+                announced_blocked = True
+                logger.warning(f"{stage} {notice}")
+                if on_progress:
+                    on_progress(notice)
 
         # A new window is almost always the device-approval popup.
         handles = set(_window_handles(driver))

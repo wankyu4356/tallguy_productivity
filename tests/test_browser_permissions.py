@@ -27,14 +27,16 @@ class _Driver:
         return self._script
 
 
-def test_grants_notifications_for_every_thebell_origin():
+def test_grants_local_network_access_for_every_thebell_origin():
+    """The prompt thebell raises is Local Network Access, not notifications:
+    its security program listens locally and the page has to reach it."""
     d = _Driver()
     assert b.grant_thebell_permissions(d) is True
 
     origins = [p["origin"] for _, p in d.calls]
     assert set(origins) == set(b.THEBELL_ORIGINS)
     for _, params in d.calls:
-        assert "notifications" in params["permissions"]
+        assert "localNetworkAccess" in params["permissions"]
 
 
 def test_grant_targets_only_thebell():

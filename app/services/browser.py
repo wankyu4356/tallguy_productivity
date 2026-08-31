@@ -26,23 +26,31 @@ Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US
 Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
 """
 
-# thebell identifies the machine by asking for a browser permission — the
-# 차단/허용 bar that drops under the address bar. That prompt is browser chrome,
-# not page content: Selenium cannot see it and cannot click it, and while it is
-# open the page just waits. So the permission is granted up front, per origin,
-# and the prompt never appears.
+# thebell's security program (thebellCertSetup.exe) runs a service on the
+# machine, and the site talks to it to certify the device. Reaching a local
+# address from a public page needs the browser's Local Network Access
+# permission, which is the 차단/허용 bar that drops under the address bar:
+#
+#   www.thebell.co.kr이(가) 하려고 합니다.
+#   로컬 네트워크의 모든 장치를 찾아서 연결합니다.   [차단] [허용]
+#
+# That bar is browser chrome, not page content — Selenium can neither see nor
+# click it — and while it goes unanswered the login fails with thebell's own
+# "로그인에 문제가 발생했습니다 / 권한설정 문제" dialog. So the permission is
+# granted before the page can ask.
 THEBELL_ORIGINS = (
     "https://www.thebell.co.kr",
     "https://thebell.co.kr",
 )
 
-# Granted for those origins only. `notifications` is the one thebell uses for
-# device registration; the rest are the other prompts a site can raise, listed
-# so an unexpected one doesn't silently stall the login.
+# `localNetworkAccess` is the permission behind that bar (verified against
+# Edge: without it navigator.permissions reports "prompt", with it "granted",
+# and the grant also overrides a 차단 the user clicked earlier). notifications
+# rides along because it is the other prompt a news site commonly raises and
+# this grant is scoped to thebell's origins only.
 _GRANTED_PERMISSIONS = [
+    "localNetworkAccess",
     "notifications",
-    "clipboardReadWrite",
-    "clipboardSanitizedWrite",
 ]
 
 # Records what the page actually asked for, so the log can say which permission
@@ -159,9 +167,10 @@ class BrowserManager:
             # per-origin — acceptable because this profile exists only to drive
             # thebell, and the alternative is a 차단/허용 bar parked in front of
             # a login that no code can click past. 1 = allow, 2 = block, 0 = ask.
+            # The key is snake_case; the camelCase spelling silently does
+            # nothing (it leaves the permission at "prompt").
             "prefs": {
-                "profile.default_content_setting_values.notifications": 1,
-                "profile.default_content_setting_values.clipboard": 1,
+                "profile.default_content_setting_values.local_network_access": 1,
             },
         }
 

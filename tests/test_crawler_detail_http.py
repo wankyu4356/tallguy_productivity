@@ -156,3 +156,27 @@ def test_closed_window_is_recovered():
 def test_login_check_survives_a_dead_window():
     d = _Driver({}, "gone")
     assert cr._check_logged_in(d, quiet=True) is False
+
+
+# --- thebell's own "login blocked" dialog ----------------------------------
+
+BLOCKED_HTML = (
+    "로그인에 문제가 발생했습니다. 아래 두 가지 장애요인을 확인해주세요. "
+    "1. 권한설정 문제 - 브라우저 또는 PC 권한설정 문제(권한 차단)로 로그인이 제한된 경우 "
+    "2. 보안프로그램 설치 문제 - 보안프로그램이 설치되지 않았거나 실행되지 않는 경우 확인"
+)
+
+
+def test_blocked_dialog_names_both_causes():
+    notice = cr._login_blocked_notice(_Driver({"w": BLOCKED_HTML}, "w"))
+    assert notice is not None
+    assert "로컬 네트워크" in notice
+    assert "보안프로그램" in notice
+
+
+def test_blocked_dialog_not_reported_on_a_normal_page():
+    assert cr._login_blocked_notice(_Driver({"w": "오늘의 주요 뉴스"}, "w")) is None
+
+
+def test_blocked_dialog_survives_a_dead_window():
+    assert cr._login_blocked_notice(_Driver({}, "gone")) is None
