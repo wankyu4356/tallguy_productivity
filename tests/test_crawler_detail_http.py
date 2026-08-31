@@ -167,11 +167,9 @@ BLOCKED_HTML = (
 )
 
 
-def test_blocked_dialog_names_both_causes():
-    notice = cr._login_blocked_notice(_Driver({"w": BLOCKED_HTML}, "w"))
-    assert notice is not None
-    assert "로컬 네트워크" in notice
-    assert "보안프로그램" in notice
+def test_blocked_dialog_is_recognised(monkeypatch):
+    monkeypatch.setattr(cr, "launcher_installed", lambda: False)
+    assert cr._login_blocked_notice(_Driver({"w": BLOCKED_HTML}, "w")) is not None
 
 
 def test_blocked_dialog_not_reported_on_a_normal_page():
@@ -180,3 +178,53 @@ def test_blocked_dialog_not_reported_on_a_normal_page():
 
 def test_blocked_dialog_survives_a_dead_window():
     assert cr._login_blocked_notice(_Driver({}, "gone")) is None
+
+
+# --- thebell security launcher (thebellCertSetup.exe) ----------------------
+#
+# The login page certifies the machine against a local service:
+#   GET http://127.0.0.1:9999/INSTALL     -> "INSTALLED"
+#   GET http://127.0.0.1:9999/GETCERTKEY  -> device key
+# In the browser those are public -> loopback requests, gated behind the Local
+# Network Access prompt that automation cannot click. We make them from Python.
+
+def test_launcher_installed_only_on_the_exact_reply(monkeypatch):
+    monkeypatch.setattr(cr, "_launcher_get", lambda p: "INSTALLED")
+    assert cr.launcher_installed() is True
+
+    monkeypatch.setattr(cr, "_launcher_get", lambda p: "NOTINSTALLED")
+    assert cr.launcher_installed() is False
+
+
+def test_launcher_absent_is_false_not_an_error(monkeypatch):
+    monkeypatch.setattr(cr, "_launcher_get", lambda p: None)
+    assert cr.launcher_installed() is False
+    assert cr.launcher_cert_key() is None
+
+
+def test_cert_key_is_read_from_the_launcher(monkeypatch):
+    monkeypatch.setattr(cr, "_launcher_get",
+                        lambda p: "KEY-123" if p == "/GETCERTKEY" else "INSTALLED")
+    assert cr.launcher_cert_key() == "KEY-123"
+
+
+def test_blank_cert_key_counts_as_missing(monkeypatch):
+    monkeypatch.setattr(cr, "_launcher_get", lambda p: "   ")
+    assert cr.launcher_cert_key() is None
+
+
+def test_launcher_endpoints_match_thebells_own_javascript():
+    # Read straight off the login page: LoginCheck()/checkLogin() call these.
+    assert cr.LAUNCHER_BASE == "http://127.0.0.1:9999"
+
+
+def test_blocked_dialog_blames_the_launcher_when_it_is_down(monkeypatch):
+    monkeypatch.setattr(cr, "launcher_installed", lambda: False)
+    notice = cr._login_blocked_notice(_Driver({"w": BLOCKED_HTML}, "w"))
+    assert "thebellCertSetup.exe" in notice
+
+
+def test_blocked_dialog_blames_permissions_when_launcher_is_up(monkeypatch):
+    monkeypatch.setattr(cr, "launcher_installed", lambda: True)
+    notice = cr._login_blocked_notice(_Driver({"w": BLOCKED_HTML}, "w"))
+    assert "보안프로그램은 실행 중" in notice

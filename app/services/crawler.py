@@ -179,6 +179,80 @@ _LOGIN_URLS = [
 
 
 
+# --- thebell security launcher (thebellCertSetup.exe) -----------------------
+# The login page certifies the machine by talking to a local service the
+# launcher runs, and only then submits:
+#
+#   GET http://127.0.0.1:9999/INSTALL      -> "INSTALLED"
+#   GET http://127.0.0.1:9999/GETCERTKEY   -> device key
+#   login_form.pseq = key; action = LoginProc.asp; submit()
+#
+# In a browser those two GETs are public -> loopback requests, so Edge gates
+# them behind the Local Network Access permission — the 차단/허용 bar that no
+# automation can click. We make the same two calls from Python instead, where
+# no such gate exists, and hand the key to the form. Same flow the page runs,
+# minus the permission problem.
+LAUNCHER_BASE = "http://127.0.0.1:9999"
+LAUNCHER_TIMEOUT = 4
+
+
+def _launcher_get(path: str) -> str | None:
+    """Call the local launcher. None means it isn't running."""
+    try:
+        req = urllib.request.Request(
+            f"{LAUNCHER_BASE}{path}",
+            headers={"User-Agent": _UA, "Origin": THEBELL_BASE,
+                     "Referer": THEBELL_BASE + "/"},
+        )
+        with urllib.request.urlopen(req, timeout=LAUNCHER_TIMEOUT) as resp:
+            return resp.read().decode("utf-8", "replace").strip()
+    except Exception as e:
+        logger.debug(f"[런처] {path} 실패 | {type(e).__name__}: {str(e)[:120]}")
+        return None
+
+
+def launcher_installed() -> bool:
+    """True when thebell's security program is installed and running."""
+    return _launcher_get("/INSTALL") == "INSTALLED"
+
+
+def launcher_cert_key() -> str | None:
+    """The machine's certificate key, or None if the launcher isn't up."""
+    key = (_launcher_get("/GETCERTKEY") or "").strip()
+    return key or None
+
+
+def _submit_login_with_cert(driver, user_id: str, password: str, cert_key: str) -> bool:
+    """Fill #login_form, attach the cert key, and submit — as the page does.
+
+    Mirrors thebell's own checkLogin(): set pseq, point the form at
+    LoginProc.asp, submit. Returns False if the page isn't the login form.
+    """
+    script = """
+    var id = arguments[0], pw = arguments[1], key = arguments[2];
+    var form = document.querySelector("form[name='login_form'], form#login_form");
+    if (!form) return 'no-form';
+    var f = function (n) { return form.querySelector("input[name='" + n + "']"); };
+    if (!f('id') || !f('pw')) return 'no-fields';
+    f('id').value = id;
+    f('pw').value = pw;
+    if (f('pseq')) f('pseq').value = key;
+    form.setAttribute('action', 'LoginProc.asp');
+    form.submit();
+    return 'ok';
+    """
+    try:
+        result = driver.execute_script(script, user_id, password, cert_key)
+    except Exception as e:
+        logger.warning(f"[로그인:인증키] 폼 제출 중 오류 | {type(e).__name__}: {str(e)[:150]}")
+        return False
+    if result != "ok":
+        logger.info(f"[로그인:인증키] 폼을 찾지 못함 | result={result}")
+        return False
+    logger.info("[로그인:인증키] 인증키를 넣어 로그인 폼 제출")
+    return True
+
+
 # --- Device authorisation ---------------------------------------------------
 # thebell identifies the machine by raising a browser permission prompt — the
 # 차단/허용 bar under the address bar. That prompt is browser chrome, so nothing
@@ -219,16 +293,16 @@ def _login_blocked_notice(driver) -> str | None:
     if not any(m in text for m in _LOGIN_BLOCKED_MARKERS):
         return None
 
-    causes = []
-    if _PERMISSION_CAUSE in text:
-        causes.append("브라우저 권한(로컬 네트워크 연결 허용)")
-    if _SECURITY_CAUSE in text:
-        causes.append("보안프로그램(thebell launcher) 설치·실행")
-    detail = " / ".join(causes) if causes else "권한 또는 보안프로그램"
+    # We can tell the two apart: ask the launcher directly.
+    if launcher_installed():
+        return (
+            "⚠ 더벨이 로그인을 막았습니다. 보안프로그램은 실행 중이니 "
+            "브라우저 권한 문제입니다. [확인]을 누르고 다시 시도해 주세요."
+        )
     return (
-        f"⚠ 더벨이 로그인을 막았습니다 — {detail} 문제입니다. "
-        "권한은 자동으로 허용해 두었으니, 보안프로그램이 설치·실행 중인지 "
-        "확인한 뒤 [확인]을 누르고 다시 로그인해 주세요."
+        "⚠ 더벨 보안프로그램(thebell launcher)이 실행되고 있지 않습니다. "
+        f"{LAUNCHER_BASE} 에 응답이 없습니다. thebellCertSetup.exe 를 "
+        "설치·실행한 뒤 [확인]을 누르고 다시 시도해 주세요."
     )
 
 
@@ -668,7 +742,28 @@ def _auto_login_sync(driver, on_progress: callable | None = None) -> bool:
     _load_login_page(driver)
     time.sleep(1)
 
-    form_submitted = _find_login_form_and_fill(driver, user_id, password)
+    # Preferred path: get the device certificate from the local launcher
+    # ourselves, so the browser never has to make the loopback request that
+    # its Local Network Access prompt would block.
+    form_submitted = False
+    if launcher_installed():
+        cert_key = launcher_cert_key()
+        if cert_key:
+            logger.info(f"{stage} 보안프로그램 확인됨 | 인증키 {len(cert_key)}자 확보")
+            form_submitted = _submit_login_with_cert(driver, user_id, password, cert_key)
+        else:
+            logger.warning(f"{stage} 보안프로그램은 떠 있으나 인증키를 받지 못함")
+    else:
+        logger.warning(f"{stage} 보안프로그램(thebell launcher) 미실행 — {LAUNCHER_BASE} 응답 없음")
+        if on_progress:
+            on_progress(
+                "⚠ 더벨 보안프로그램(thebell launcher)이 실행되고 있지 않습니다. "
+                "thebellCertSetup.exe 를 설치·실행한 뒤 다시 시도해 주세요."
+            )
+
+    # Fall back to driving the page's own login button.
+    if not form_submitted:
+        form_submitted = _find_login_form_and_fill(driver, user_id, password)
     if not form_submitted:
         logger.warning(f"{stage} 폼 제출 실패 — 수동 로그인으로 전환 | elapsed={time.time()-t0:.1f}s")
         return False
